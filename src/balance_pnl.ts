@@ -1,3 +1,4 @@
+
 import dayjs from "dayjs";
 import { client } from "./client";
 import { COINS_CONFIG } from "./config";
@@ -16,7 +17,7 @@ type SymbolStats = {
   pnl: number;
 };
 
-// Расширенный конфиг интервалов (добавлены 2, 3 и 4 недели)
+// Периоды отчёта.
 const INTERVALS_CONFIG = [
   { label: "1 час", hours: 1 },
   { label: "2 часа", hours: 2 },
@@ -26,9 +27,9 @@ const INTERVALS_CONFIG = [
   { label: "2 дня", hours: 48 },
   { label: "3 дня", hours: 72 },
   { label: "7 дней", hours: 168 },
-  { label: "2 недели", hours: 336 },  // 14 дней
-  { label: "3 недели", hours: 504 },  // 21 день
-  { label: "4 недели", hours: 672 },  // 28 дней
+  { label: "2 недели", hours: 336 },
+  { label: "3 недели", hours: 504 },
+  { label: "4 недели", hours: 672 },
 ];
 
 export function getActiveSymbols(): string[] {
@@ -36,118 +37,212 @@ export function getActiveSymbols(): string[] {
 }
 
 export function getUsdtQtyToSymbol(symbol: string): number {
-  let config = COINS_CONFIG.find((c) => c.SYMBOL === symbol);
+  const config = COINS_CONFIG.find((c) => c.SYMBOL === symbol);
   return config?.USDT_QUANTITY || 0;
 }
 
 export function getUsdtToTrades(): number {
-  return COINS_CONFIG.reduce((ac, cu) => (ac += cu.USDT_QUANTITY), 0);
+  return COINS_CONFIG.reduce(
+    (ac, cu) => (ac += cu.USDT_QUANTITY),
+    0,
+  );
 }
 
-// 1. Карта балансов Bybit
-async function getBalancesMap() {
-  const response = await client.getWalletBalance({
-    accountType: "UNIFIED",
+// Преобразуем BTCUSDT в BTC/USDT.
+function normalizeSymbol(symbol: string): string {
+  if (symbol.includes("/")) {
+    return symbol;
+  }
+
+  const normalized = symbol.replace(/[-_]/g, "").toUpperCase();
+
+  const markets = Object.values(client.markets || {}) as any[];
+
+  const market = markets.find((item) => {
+    const marketSymbol = item.symbol
+      ?.replace("/", "")
+      .replace(":", "")
+      .toUpperCase();
+
+    const marketId = item.id
+      ?.replace(/[-_]/g, "")
+      .toUpperCase();
+
+    return (
+      marketSymbol === normalized ||
+      marketId === normalized
+    );
   });
+
+  if (!market) {
+    throw new Error(
+      `Торговая пара ${symbol} не найдена на ${client.id}`,
+    );
+  }
+
+  return market.symbol;
+}
+
+// Преобразуем CCXT-сделку в прежний внутренний формат.
+function normalizeTrade(trade: any) {
+  return {
+    ...trade,
+    execTime: String(trade.timestamp || 0),
+    execPrice: String(trade.price || 0),
+    execQty: String(trade.amount || 0),
+    side: trade.side === "buy" ? "Buy" : "Sell",
+  };
+}
+
+// 1. Получение балансов через CCXT.
+async function getBalancesMap(): Promise<Record<string, number>> {
+  const balance = await client.fetchBalance();
+
   const map: Record<string, number> = {};
-  if (response.retCode === 0 && response.result?.list?.[0]?.coin) {
-    const coins = response.result.list[0].coin;
-    for (const c of coins) {
-      const total = Number(c.walletBalance);
-      if (total > 0) {
-        map[c.coin] = total;
-      }
+
+  for (const [coin, amount] of Object.entries(balance.total || {})) {
+    const total = Number(amount);
+
+    if (total > 0) {
+      map[coin] = total;
     }
   }
+
   return map;
 }
 
-// 2. Карта цен Bybit
-async function getPriceMap(symbols: string[]) {
-  const response = await client.getTickers({
-    category: "spot",
-  });
+// 2. Получение текущих цен через CCXT.
+async function getPriceMap(
+  symbols: string[],
+): Promise<Record<string, number>> {
   const map: Record<string, number> = {};
-  if (response.retCode === 0 && response.result?.list) {
-    for (const t of response.result.list) {
-      if (symbols.includes(t.symbol)) {
-        map[t.symbol] = Number(t.lastPrice);
-      }
-    }
-  }
-  return map;
-}
 
-// 3. Скачивание сделок с пагинацией пошаговыми окнами по 7 дней (Решает проблему лимитов Bybit)
-async function getTradesLastDays(symbol: string, daysWindow = 30): Promise<any[]> {
-  const allTrades: any[] = [];
-  const now = Date.now();
-  const targetStartTime = now - daysWindow * 24 * 60 * 60 * 1000; // Целевая точка в прошлом (например, 30 дней назад)
-
-  // Разбиваем запрос на отрезки максимум по 7 дней, так как Bybit не примет окно больше 7 дней
-  const STEP_MS = 7 * 24 * 60 * 60 * 1000; 
-  
-  // Начинаем с текущего момента и идем назад
-  let currentEndTime = now;
-
-  while (currentEndTime > targetStartTime) {
-    // Рассчитываем startTime для текущего шага, но не дальше, чем общая целевая точка
-    let currentStartTime = currentEndTime - STEP_MS;
-    if (currentStartTime < targetStartTime) {
-      currentStartTime = targetStartTime;
-    }
-
-    let cursor: string | undefined = undefined;
-    let hasMoreInPeriod = true;
-
+  for (const originalSymbol of symbols) {
     try {
-      while (hasMoreInPeriod) {
-        const params: any = {
-          category: "spot",
-          symbol: symbol,
-          startTime: currentStartTime,
-          endTime: currentEndTime,
-          limit: 100,
-        };
+      const symbol = normalizeSymbol(originalSymbol);
+      const ticker = await client.fetchTicker(symbol);
 
-        if (cursor !== undefined) {
-          params.cursor = cursor;
-        }
+      const price = Number(ticker.last);
 
-        const response = await client.getExecutionList(params);
-        
-        if (response.retCode !== 0) {
-          console.error(`API Error для ${symbol} [код ${response.retCode}]: ${response.retMsg}`);
-          break;
-        }
-
-        const list = response.result?.list || [];
-        if (list.length === 0) {
-          break;
-        }
-
-        allTrades.push(...list);
-
-        // Проверяем пагинацию внутри текущего 7-дневного окна
-        cursor = response.result?.nextPageCursor;
-        if (!cursor || list.length < 100) {
-          hasMoreInPeriod = false;
-        }
+      if (price > 0) {
+        map[originalSymbol] = price;
       }
-    } catch (err) {
-      console.error(`Ошибка загрузки сегмента сделок для ${symbol}:`, err);
-      break; 
+    } catch (error: any) {
+      console.error(
+        `Ошибка получения цены ${originalSymbol}:`,
+        error.message || error,
+      );
     }
-
-    // Сдвигаем временное окно дальше в прошлое для следующей итерации цикла
-    currentEndTime = currentStartTime;
   }
 
-  // Сортируем от старых сделок к новым, как ожидает функция calculateStatsForPeriod
-  return allTrades.sort((a, b) => Number(a.execTime) - Number(b.execTime));
+  return map;
 }
 
-// 4. Расчет статистики периода с учетом спотовой комиссии Bybit (0.1%)
+// 3. Получение истории сделок за указанный период.
+// Используем пагинацию CCXT через since и limit.
+async function getTradesLastDays(
+  originalSymbol: string,
+  daysWindow = 30,
+): Promise<any[]> {
+  const allTrades: any[] = [];
+
+  const symbol = normalizeSymbol(originalSymbol);
+
+  const now = Date.now();
+  const targetStartTime =
+    now - daysWindow * 24 * 60 * 60 * 1000;
+
+  const LIMIT = 100;
+  const MAX_PAGES = 500;
+
+  let since = targetStartTime;
+
+  const seenTrades = new Set<string>();
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    try {
+      const trades = await client.fetchMyTrades(
+        symbol,
+        since,
+        LIMIT,
+      );
+
+      if (!trades || trades.length === 0) {
+        break;
+      }
+
+      let latestTimestamp = since;
+
+      for (const trade of trades) {
+        if (!trade.timestamp) {
+          continue;
+        }
+
+        if (trade.timestamp < targetStartTime) {
+          continue;
+        }
+
+        if (trade.timestamp > now) {
+          continue;
+        }
+
+        const uniqueKey = trade.id
+          ? String(trade.id)
+          : [
+              trade.timestamp,
+              trade.side,
+              trade.price,
+              trade.amount,
+            ].join("_");
+
+        if (!seenTrades.has(uniqueKey)) {
+          seenTrades.add(uniqueKey);
+          allTrades.push(normalizeTrade(trade));
+        }
+
+        if (trade.timestamp > latestTimestamp) {
+          latestTimestamp = trade.timestamp;
+        }
+      }
+
+      // Защита от бесконечной пагинации,
+      // если биржа повторяет одну и ту же страницу.
+      if (latestTimestamp < since) {
+        break;
+      }
+
+      if (latestTimestamp === since) {
+        break;
+      }
+
+      // Если получено меньше лимита, следующие страницы
+      // обычно уже не нужны.
+      if (trades.length < LIMIT) {
+        break;
+      }
+
+      // Следующий запрос начинаем после последней сделки.
+      since = latestTimestamp + 1;
+
+    } catch (error: any) {
+      console.error(
+        `Ошибка загрузки истории сделок ${originalSymbol}:`,
+        error.message || error,
+      );
+
+      break;
+    }
+  }
+
+  // Сортируем от старых сделок к новым.
+  return allTrades.sort(
+    (a, b) => Number(a.execTime) - Number(b.execTime),
+  );
+}
+
+// 4. Расчёт статистики периода.
+// Комиссия 0.1% оставлена как оценка, как в исходной версии.
+// Это не обязательно совпадает с фактической комиссией Gate.io.
 function calculateStatsForPeriod(
   symbol: string,
   trades: any[],
@@ -168,140 +263,206 @@ function calculateStatsForPeriod(
     pnl: 0,
   };
 
-  if (trades.length === 0) return stats;
+  if (trades.length === 0) {
+    return stats;
+  }
 
-  const FEE_RATE = 0.001; 
+  const FEE_RATE = 0.001;
+
   const earliestPrice = Number(trades[0].execPrice);
+
   let rollingBuyQtyWithFee = 0;
   let rollingBuyVol = 0;
 
-  for (const t of trades) {
-    const p = Number(t.execPrice);
-    const q = Number(t.execQty);
-    const rawValue = p * q;
+  for (const trade of trades) {
+    const price = Number(trade.execPrice);
+    const quantity = Number(trade.execQty);
 
-    if (t.side === "Buy") {
+    const rawValue = price * quantity;
+
+    if (trade.side === "Buy") {
       stats.buyVolume += rawValue;
-      const netQty = q * (1 - FEE_RATE);
+
+      const netQty = quantity * (1 - FEE_RATE);
+
       stats.buyQty += netQty;
       rollingBuyQtyWithFee += netQty;
       rollingBuyVol += rawValue;
+
     } else {
       const netValue = rawValue * (1 - FEE_RATE);
+
       stats.sellVolume += netValue;
-      stats.sellQty += q;
+      stats.sellQty += quantity;
       stats.actualSells += 1;
 
-      const currentAvgBuyPrice = rollingBuyVol / (rollingBuyQtyWithFee || 1);
-      if (p > currentAvgBuyPrice) {
+      const currentAvgBuyPrice =
+        rollingBuyVol / (rollingBuyQtyWithFee || 1);
+
+      if (price > currentAvgBuyPrice) {
         stats.winTrades += 1;
       }
     }
   }
 
   const walletValue = realWalletBalance * currentPrice;
-  const totalSellVolumeWithWallet = stats.sellVolume + walletValue;
-  const totalSellQtyWithWallet = stats.sellQty + realWalletBalance;
 
-  const qtyDelta = stats.buyQty - totalSellQtyWithWallet;
+  const totalSellVolumeWithWallet =
+    stats.sellVolume + walletValue;
+
+  const totalSellQtyWithWallet =
+    stats.sellQty + realWalletBalance;
+
+  const qtyDelta =
+    stats.buyQty - totalSellQtyWithWallet;
+
   let historyAdjustment = 0;
 
   if (qtyDelta > 0) {
     historyAdjustment = qtyDelta * earliestPrice;
   } else if (qtyDelta < 0) {
-    historyAdjustment = -(Math.abs(qtyDelta) * earliestPrice);
+    historyAdjustment = -Math.abs(qtyDelta) * earliestPrice;
   }
 
-  stats.pnl = totalSellVolumeWithWallet - stats.buyVolume + historyAdjustment;
-  stats.simulatedVolume = walletValue + historyAdjustment;
+  stats.pnl =
+    totalSellVolumeWithWallet -
+    stats.buyVolume +
+    historyAdjustment;
+
+  stats.simulatedVolume =
+    walletValue + historyAdjustment;
 
   return stats;
 }
 
+// 5. Главная функция мультипериодного отчёта.
 async function calculateMultiPeriodPnl() {
-  console.log("trade pair : ", COINS_CONFIG.length);
-  console.log("trade to :", getUsdtToTrades());
+  try {
+    await client.loadMarkets();
 
-  const symbols = getActiveSymbols();
-  const prices = await getPriceMap(symbols);
-  const balances = await getBalancesMap();
-  const now = Date.now();
+    console.log("Количество торговых пар:", COINS_CONFIG.length);
+    console.log("Общий объём торговли:", getUsdtToTrades());
 
-  const periodResults: Record<number, Record<string, SymbolStats>> = {};
-  INTERVALS_CONFIG.forEach((config) => {
-    periodResults[config.hours] = {};
-  });
+    const symbols = getActiveSymbols();
 
-  for (const symbol of symbols) {
-    // Скачиваем историю за 30 дней, чтобы хватило на расчет 4-х недель
-    const allTrades30d = await getTradesLastDays(symbol, 30);
-    if (allTrades30d.length === 0) continue;
+    const prices = await getPriceMap(symbols);
+    const balances = await getBalancesMap();
 
-    const currentPrice = prices[symbol] || 0;
-    const baseAsset = symbol.replace(/(USDT|USD|BUSD)$/, "");
-    const realWalletBalance = balances[baseAsset] || 0;
+    const now = Date.now();
 
-    for (const config of INTERVALS_CONFIG) {
-      const cutoffTime = now - config.hours * 60 * 60 * 1000;
-      const filteredTrades = allTrades30d.filter(
-        (t) => Number(t.execTime) >= cutoffTime,
-      );
+    const periodResults: Record<
+      number,
+      Record<string, SymbolStats>
+    > = {};
 
-      if (filteredTrades.length > 0) {
-        if (!periodResults[config.hours]) {
-          periodResults[config.hours] = {};
-        }
-        const currentPeriodMap = periodResults[config.hours] ?? {};
-        currentPeriodMap[symbol] = calculateStatsForPeriod(
-          symbol,
-          filteredTrades,
-          currentPrice,
-          realWalletBalance,
-        );
-      }
-    }
-  }
-
-  console.clear();
-  console.log(
-    `================================================================`,
-  );
-  console.log(
-    ` МУЛЬТИПЕРИОДНЫЙ ОТЧЕТ (Текущее время: ${dayjs().format("HH:mm:ss")})`,
-  );
-  console.log(
-    `================================================================\n`,
-  );
-
-  for (const config of INTERVALS_CONFIG) {
-    const statsMap = periodResults[config.hours] || {};
-    let totalSessionPnl = 0;
-
-    const rows = Object.values(statsMap).map((s) => {
-      totalSessionPnl += s.pnl;
-      return {
-        Монета: s.symbol,
-        "PnL (USDT)": s.pnl.toFixed(2),
-        Сделки: s.tradesCount,
-        "Обьем круга (USDT) ": getUsdtQtyToSymbol(s.symbol),
-      };
+    INTERVALS_CONFIG.forEach((config) => {
+      periodResults[config.hours] = {};
     });
 
-    if (rows.length === 0) {
-      console.log(`⏱️ ПЕРИОД: ${config.label} — Нет сделок за этот период.`);
-      console.log(
-        `----------------------------------------------------------------\n`,
-      );
-      continue;
+    for (const symbol of symbols) {
+      console.log(`Загрузка истории сделок: ${symbol}`);
+
+      // Загружаем историю за 30 дней.
+      const allTrades30d = await getTradesLastDays(symbol, 30);
+
+      if (allTrades30d.length === 0) {
+        console.log(`Нет сделок за последние 30 дней: ${symbol}`);
+        continue;
+      }
+
+      const currentPrice = prices[symbol] || 0;
+
+      const baseAsset = symbol
+        .replace("/", "")
+        .replace(/(USDT|USD|BUSD)$/, "");
+
+      const realWalletBalance = balances[baseAsset] || 0;
+
+      for (const config of INTERVALS_CONFIG) {
+        const cutoffTime =
+          now - config.hours * 60 * 60 * 1000;
+
+        const filteredTrades = allTrades30d.filter(
+          (trade) =>
+            Number(trade.execTime) >= cutoffTime,
+        );
+
+        if (filteredTrades.length > 0) {
+          periodResults[config.hours][symbol] =
+            calculateStatsForPeriod(
+              symbol,
+              filteredTrades,
+              currentPrice,
+              realWalletBalance,
+            );
+        }
+      }
     }
 
-    console.log(`⏱️ ПЕРИОД: ${config.label}`);
-    console.table(rows);
+    // Вывод отчёта.
+    console.clear();
+
     console.log(
-      `ИТОГ ЗА ${config.label}: ${totalSessionPnl >= 0 ? "+" : ""}${totalSessionPnl.toFixed(2)} USDT`,
+      "================================================================",
     );
+
     console.log(
-      `----------------------------------------------------------------\n`,
+      ` МУЛЬТИПЕРИОДНЫЙ ОТЧЕТ (Текущее время: ${dayjs().format("HH:mm:ss")})`,
+    );
+
+    console.log(
+      "================================================================\n",
+    );
+
+    for (const config of INTERVALS_CONFIG) {
+      const statsMap = periodResults[config.hours] || {};
+
+      let totalSessionPnl = 0;
+
+      const rows = Object.values(statsMap).map((stats) => {
+        totalSessionPnl += stats.pnl;
+
+        return {
+          Монета: stats.symbol,
+          "PnL (USDT)": stats.pnl.toFixed(2),
+          Сделки: stats.tradesCount,
+          "Обьем круга (USDT)": getUsdtQtyToSymbol(
+            stats.symbol,
+          ),
+        };
+      });
+
+      if (rows.length === 0) {
+        console.log(
+          `⏱️ ПЕРИОД: ${config.label} — Нет сделок за этот период.`,
+        );
+
+        console.log(
+          "----------------------------------------------------------------\n",
+        );
+
+        continue;
+      }
+
+      console.log(`⏱️ ПЕРИОД: ${config.label}`);
+
+      console.table(rows);
+
+      console.log(
+        `ИТОГ ЗА ${config.label}: ${
+          totalSessionPnl >= 0 ? "+" : ""
+        }${totalSessionPnl.toFixed(2)} USDT`,
+      );
+
+      console.log(
+        "----------------------------------------------------------------\n",
+      );
+    }
+
+  } catch (error: any) {
+    console.error(
+      "Ошибка формирования отчёта PnL:",
+      error.message || error,
     );
   }
 }

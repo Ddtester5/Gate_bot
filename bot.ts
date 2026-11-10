@@ -1,18 +1,30 @@
+
 import { COINS_CONFIG } from "./src/config";
 import { tradeLoop } from "./src/strategy";
+import { initializeExchange } from "./src/client";
 import { sleep } from "./src/utils";
 
 async function startMultiBot() {
-  console.log(`[Bybit V5] Бот инициализирует торговлю для ${COINS_CONFIG.length} пар...`);
+  try {
+    // Сначала подключаемся к бирже и загружаем список рынков
+    await initializeExchange();
 
-  // Запуск независимого цикла для каждой монеты параллельно
-  // Задержка в 4.4 секунды между парами защищает от Rate Limit на старте
-  const tradingPromises = COINS_CONFIG.map(async (coinConfig, index) => {
-    await sleep(index * 4444);
-    return tradeLoop(coinConfig);
-  });
+    console.log(
+      `[CCXT] Запуск торговли на ${COINS_CONFIG.length} парах...`,
+    );
 
-  await Promise.all(tradingPromises);
+    // Запуск независимого цикла для каждой монеты параллельно
+    // Задержка в 4.4 секунды между парами снижает нагрузку на API
+    const tradingPromises = COINS_CONFIG.map(async (coinConfig, index) => {
+      await sleep(index * 4444);
+      return tradeLoop(coinConfig);
+    });
+
+    await Promise.all(tradingPromises);
+  } catch (error) {
+    console.error("❌ Ошибка запуска бота:", error);
+    process.exit(1);
+  }
 }
 
 startMultiBot();

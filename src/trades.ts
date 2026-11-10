@@ -1,51 +1,83 @@
+
 import { client } from "./client";
 
 export async function getLastBuyPrice(
   symbol: string
 ): Promise<number | null> {
   try {
-    // 1. Для получения истории сделок по конкретному symbol используется getExecutionList
-    const response = await client.getExecutionList({
-      category: "spot",
-      symbol: symbol,
-      limit: 50,
-    });
+    await client.loadMarkets();
 
-    if (response.retCode !== 0 || !response.result?.list || response.result.list.length === 0) {
-      if (response.retCode !== 0) {
-        console.error("Ошибка API Bybit при запросе сделок:", response.retMsg);
+    // Преобразуем BTCUSDT в формат CCXT BTC/USDT.
+    let ccxtSymbol = symbol;
+
+    if (!symbol.includes("/")) {
+      const normalized = symbol.replace(/[-_]/g, "").toUpperCase();
+
+      const markets = Object.values(client.markets || {}) as any[];
+
+      const market = markets.find((item) => {
+        const marketSymbol = item.symbol
+          ?.replace("/", "")
+          .replace(":", "")
+          .toUpperCase();
+
+        const marketId = item.id
+          ?.replace(/[-_]/g, "")
+          .toUpperCase();
+
+        return (
+          marketSymbol === normalized ||
+          marketId === normalized
+        );
+      });
+
+      if (!market) {
+        throw new Error(`Торговая пара ${symbol} не найдена`);
       }
+
+      ccxtSymbol = market.symbol;
+    }
+
+    // Получаем последние сделки пользователя.
+    const trades = await client.fetchMyTrades(
+      ccxtSymbol,
+      undefined,
+      50
+    );
+
+    if (!trades || trades.length === 0) {
       return null;
     }
 
-    const trades = response.result.list;
-
-    // 2. Фильтруем только покупки
-    const buyTrades = trades.filter((t: any) => t.side === "Buy");
+    // Оставляем только покупки.
+    const buyTrades = trades.filter(
+      (trade: any) => trade.side === "buy"
+    );
 
     if (buyTrades.length === 0) {
       return null;
     }
 
-    // Сортируем сделки от более свежих к старым
+    // Сортируем от новых сделок к старым.
     buyTrades.sort(
-      (a: any, b: any) => Number(b.execTime) - Number(a.execTime)
+      (a: any, b: any) =>
+        Number(b.timestamp || 0) - Number(a.timestamp || 0)
     );
 
-    // 3. Безопасно извлекаем первый элемент, предотвращая ошибку 'possibly undefined'
     const lastBuy = buyTrades[0];
-    if (!lastBuy) {
+
+    if (!lastBuy || !lastBuy.price) {
       return null;
     }
 
-    // В ответе getExecutionList цена исполнения лежит в поле execPrice
-    return Number(lastBuy.execPrice);
+    return Number(lastBuy.price);
 
   } catch (e: any) {
     console.error(
       `Ошибка получения последней покупки ${symbol}:`,
       e.message || e
     );
+
     return null;
   }
 }

@@ -1,3 +1,4 @@
+
 import type { CoinConfig } from "./config";
 import { analyzeMarket } from "./analize_market";
 import {
@@ -33,14 +34,15 @@ export async function tradeLoop(config: CoinConfig) {
   } = config;
 
   console.log(
-    `🚀 Робот запущен для пары ${SYMBOL} в Stateless-режиме под Bybit V5.`,
+    `🚀 Робот запущен для пары ${SYMBOL} через CCXT.`,
   );
 
   while (true) {
     try {
       // ==========================================
-      // 1. СБОР СВЕЖИХ ДАННЫХ С СЕРВЕРА
+      // 1. СБОР СВЕЖИХ ДАННЫХ С БИРЖИ
       // ==========================================
+
       const market = await analyzeMarket(
         SYMBOL,
         ANALIZE_INTERVAL_CANDLES,
@@ -51,9 +53,20 @@ export async function tradeLoop(config: CoinConfig) {
         CANDLES_INTERVAL,
       );
 
-      if (!market) continue;
-      const { currentBuyOrder, currentSellOrder } = await getOpenOrders(SYMBOL);
-      const { coinBalance, usdtBalance } = await getAssetBalance(ASSET_NAME);
+      if (!market) {
+        await sleep(TRADE_INTERVAL_MS);
+        continue;
+      }
+
+      const {
+        currentBuyOrder,
+        currentSellOrder,
+      } = await getOpenOrders(SYMBOL);
+
+      const {
+        coinBalance,
+        usdtBalance,
+      } = await getAssetBalance(ASSET_NAME);
 
       if (
         coinBalance === null ||
@@ -64,179 +77,242 @@ export async function tradeLoop(config: CoinConfig) {
         console.log(
           `⚠️ [${SYMBOL}] Не удалось собрать все данные с биржи. Пропускаем тик...`,
         );
+
         await sleep(TRADE_INTERVAL_MS);
         continue;
       }
 
-      // Гарантируем, что если балансы пришли как undefined/null, они станут равны 0
       const safeCoinBalance = coinBalance || 0;
-
       const currentPrice = market.currentPrice;
 
-      // Теперь тут гарантированно будет число, а не NaN
-      const coinValueInUsdt = safeCoinBalance * currentPrice;
+      const coinValueInUsdt =
+        safeCoinBalance * currentPrice;
 
-      // На Bybit объем ордера лежит в qty, цена в price
+      // Рассчитываем объём средств в открытых ордерах.
       const usdtToBuyOrders = currentBuyOrder.reduce(
-        (sum: number, order: { qty: string; price: string }) =>
+        (sum: number, order: any) =>
           sum + Number(order.qty) * Number(order.price),
         0,
       );
+
       const usdtToSellOrders = currentSellOrder.reduce(
-        (sum: number, order: { qty: string; price: string }) =>
+        (sum: number, order: any) =>
           sum + Number(order.qty) * Number(order.price),
         0,
       );
 
       // ==========================================
-      // 2. АНАЛИЗ СОСТОЯНИЯ И ПРИНЯТИЕ РЕШЕНИЙ
+      // 2. СТОП-ЛОСС
       // ==========================================
+
       if (coinValueInUsdt >= MIN_NOTIONAL) {
         const buyPrice = await getLastBuyPrice(SYMBOL);
 
-        const stopPrice = Number(buyPrice) * (1 - STOP_LOSS_PCT / 100);
-        if (currentPrice <= stopPrice) {
+        // Если история сделок недоступна, не рассчитываем
+        // стоп-лосс от нулевой цены.
+        if (buyPrice !== null && buyPrice > 0) {
+          const stopPrice =
+            buyPrice * (1 - STOP_LOSS_PCT / 100);
+
+          if (currentPrice <= stopPrice) {
+            console.log(
+              `🚨 [${SYMBOL}] СТОП-ЛОСС! Цена ${currentPrice} <= ${stopPrice}. Экстренный выход по рынку.`,
+            );
+
+            for (const order of currentBuyOrder) {
+              await cancelOrder(order.orderId, SYMBOL);
+            }
+
+            for (const order of currentSellOrder) {
+              await cancelOrder(order.orderId, SYMBOL);
+            }
+
+            // Количество дополнительно округляется
+            // по точности рынка внутри CCXT.
+            const qtyStepNum = Number(QTY_STEP);
+
+            const decimalsQty =
+              qtyStepNum < 1 && qtyStepNum > 0
+                ? Math.round(-Math.log10(qtyStepNum))
+                : 0;
+
+            const formattedStopQty =
+              safeCoinBalance.toFixed(decimalsQty);
+
+            if (Number(formattedStopQty) > 0) {
+              await placeMarketSell(
+                Number(formattedStopQty),
+                SYMBOL,
+              );
+            }
+
+            console.log(
+              `😴 [${SYMBOL}] Пауза после стоп-лосса.`,
+            );
+
+            await sleep(INTERVAL_AFTER_STOPLOSS_MS);
+            continue;
+          }
+        } else {
           console.log(
-            `🚨 [${SYMBOL}] СТОП-ЛОСС! Цена ${currentPrice} <= ${stopPrice}. Экстренно выходим по рынку.`,
+            `⚠️ [${SYMBOL}] Не удалось получить последнюю цену покупки. Стоп-лосс не рассчитываем.`,
           );
-          for (const order of currentBuyOrder) {
-            await cancelOrder(order.orderId, SYMBOL);
-          }
-          for (const order of currentSellOrder) {
-            await cancelOrder(order.orderId, SYMBOL);
-          }
-
-          // Округляем перед экстренным маркет-селлом
-          const qtyStepNum = Number(QTY_STEP);
-          const decimals_qty =
-            qtyStepNum < 1 && qtyStepNum > 0
-              ? Math.round(-Math.log10(qtyStepNum))
-              : 0;
-          const formattedStopQty = safeCoinBalance.toFixed(decimals_qty);
-
-          if (Number(formattedStopQty) > 0) {
-            await placeMarketSell(Number(formattedStopQty), SYMBOL); // Передаем число/строку в зависимости от вашей функции
-          }
-
-          console.log(`😴 [${SYMBOL}] Пауза после стоп-лосса.`);
-          await sleep(INTERVAL_AFTER_STOPLOSS_MS);
-          continue;
         }
       }
 
-      // Проверка таймаута лимитных ордеров на покупку
+      // ==========================================
+      // 3. КОНТРОЛЬ ВРЕМЕНИ ОТКРЫТЫХ ОРДЕРОВ
+      // ==========================================
+
       if (currentBuyOrder.length > 0) {
         for (const order of currentBuyOrder) {
-          // Bybit возвращает строку времени в createdTime (мс)
-          const buyAgeMinutes = Date.now() - Number(order.createdTime);
-          if (buyAgeMinutes >= ORDER_TIMEOUT_MS) {
+          const buyAge = Date.now() - Number(order.createdTime);
+
+          if (buyAge >= ORDER_TIMEOUT_MS) {
             console.log(
-              `⏰ [${SYMBOL}] Ордер BUY висит слишком долго без полного налива. Отменяем.`,
+              `⏰ [${SYMBOL}] Ордер BUY просрочен. Отменяем.`,
             );
+
             await cancelOrder(order.orderId, SYMBOL);
           }
         }
       }
 
-      // Проверка таймаута лимитных ордеров на продажу
       if (currentSellOrder.length > 0) {
         for (const order of currentSellOrder) {
-          const tpAge = Date.now() - Number(order.createdTime);
-          if (tpAge >= ORDER_TIMEOUT_MS) {
+          const sellAge =
+            Date.now() - Number(order.createdTime);
+
+          if (sellAge >= ORDER_TIMEOUT_MS) {
             console.log(
-              `⏰ [${SYMBOL}] ТР висит слишком долго. Отменяем для перестановки по новому каналу.`,
+              `⏰ [${SYMBOL}] Ордер SELL просрочен. Отменяем.`,
             );
+
             await cancelOrder(order.orderId, SYMBOL);
           }
         }
       }
 
-      // Если есть монеты, выставляем Тейк-Профит (если нет активного ордера на продажу)
-      if (coinValueInUsdt >= MIN_NOTIONAL && currentSellOrder.length === 0) {
+      // ==========================================
+      // 4. ВЫСТАВЛЕНИЕ ТЕЙК-ПРОФИТА
+      // ==========================================
+
+      if (
+        coinValueInUsdt >= MIN_NOTIONAL &&
+        currentSellOrder.length === 0
+      ) {
         let targetSellPrice =
-          market.localMinPrice + market.localRange * SELL_RANGE;
-        const minAllowedSellPrice = market.currentPrice + PRICE_STEP;
+          market.localMinPrice +
+          market.localRange * SELL_RANGE;
+
+        const minAllowedSellPrice =
+          market.currentPrice + PRICE_STEP;
+
         if (targetSellPrice < minAllowedSellPrice) {
           targetSellPrice = minAllowedSellPrice;
         }
 
-        // --- НОВЫЙ БЛОК: Округляем объем продажи по QTY_STEP ---
-               // Находим количество знаков после запятой
         const qtyStepNum = Number(QTY_STEP);
-        const decimals_qty = qtyStepNum < 1 && qtyStepNum > 0 
-          ? Math.round(-Math.log10(qtyStepNum)) 
-          : 0;
 
-        // Жесткое округление ВНИЗ, чтобы никогда не превысить баланс и не плодить лишние знаки
-        const factor = Math.pow(10, decimals_qty);
-        const formattedSellQty = (Math.floor(safeCoinBalance * factor) / factor).toFixed(decimals_qty);
+        const decimalsQty =
+          qtyStepNum < 1 && qtyStepNum > 0
+            ? Math.round(-Math.log10(qtyStepNum))
+            : 0;
+
+        const factor = Math.pow(10, decimalsQty);
+
+        const formattedSellQty = (
+          Math.floor(safeCoinBalance * factor) / factor
+        ).toFixed(decimalsQty);
 
         if (Number(formattedSellQty) <= 0) {
-          console.log(`⚠️ [${SYMBOL}] Слишком маленький баланс для округления вниз (${safeCoinBalance}). Пропускаем...`);
+          console.log(
+            `⚠️ [${SYMBOL}] Недостаточный баланс для продажи.`,
+          );
+
           await sleep(TRADE_INTERVAL_MS);
           continue;
         }
 
-
         const sellOrder = await placeLimitOrder(
           "SELL",
           targetSellPrice,
-          formattedSellQty, // Передаем округленную строку вместо coinBalance.toString()
+          formattedSellQty,
           SYMBOL,
           PRICE_STEP,
         );
+
         if (sellOrder?.orderId) {
           console.log(
-            `💰 [${SYMBOL}] Выставлен Тейк-Профит на ${formattedSellQty} ${ASSET_NAME} по цене ${targetSellPrice}`,
+            `💰 [${SYMBOL}] Выставлен Take-Profit: ${formattedSellQty} ${ASSET_NAME} по цене ${targetSellPrice}`,
           );
         }
       }
 
-      // Логика выставления ордера на покупку во флете
+      // ==========================================
+      // 5. ВЫСТАВЛЕНИЕ ОРДЕРА НА ПОКУПКУ
+      // ==========================================
+
       if (
         usdtBalance >= MIN_NOTIONAL &&
         market.isSideways &&
         currentBuyOrder.length === 0
       ) {
-        const usdt_to_trade =
+        const usdtToTrade =
           Math.min(usdtBalance, USDT_QUANTITY) -
           usdtToBuyOrders -
           usdtToSellOrders -
           coinValueInUsdt;
-        if (usdt_to_trade < MIN_NOTIONAL) {
+
+        if (usdtToTrade < MIN_NOTIONAL) {
           await sleep(TRADE_INTERVAL_MS);
           continue;
         }
 
-        const coinQty = (usdt_to_trade * 0.99) / market.currentPrice;
-        const decimals_qty = QTY_STEP.toString().split(".")[1]?.length || 0;
-        const formatedQty = coinQty.toFixed(decimals_qty);
+        const coinQty =
+          (usdtToTrade * 0.99) / market.currentPrice;
+
+        const decimalsQty =
+          QTY_STEP.toString().split(".")[1]?.length || 0;
+
+        const formattedQty =
+          coinQty.toFixed(decimalsQty);
 
         let targetBuyPrice =
-          market.localMinPrice + market.localRange * BUY_RANGE;
-        const maxAllowedBuyPrice = market.currentPrice - PRICE_STEP;
+          market.localMinPrice +
+          market.localRange * BUY_RANGE;
+
+        const maxAllowedBuyPrice =
+          market.currentPrice - PRICE_STEP;
+
         if (targetBuyPrice > maxAllowedBuyPrice) {
           targetBuyPrice = maxAllowedBuyPrice;
         }
 
         console.log(
-          `📈 [${SYMBOL}] Выставляем ордер BUY на ${formatedQty} ${ASSET_NAME} по цене ${targetBuyPrice}`,
+          `📈 [${SYMBOL}] Выставляем BUY: ${formattedQty} ${ASSET_NAME} по цене ${targetBuyPrice}`,
         );
+
         const order = await placeLimitOrder(
           "BUY",
           targetBuyPrice,
-          formatedQty,
+          formattedQty,
           SYMBOL,
           PRICE_STEP,
         );
+
         if (order?.orderId) {
           console.log(
-            `🛒 [${SYMBOL}] Выставили новый ордер BUY по цене ${targetBuyPrice}`,
+            `🛒 [${SYMBOL}] Новый ордер BUY выставлен по цене ${targetBuyPrice}`,
           );
         }
       }
-    } catch (error) {
-      console.error(`💥 Критическая ошибка в цикле тика для ${SYMBOL}:`, error);
+
+    } catch (error: any) {
+      console.error(
+        `💥 Ошибка торгового цикла ${SYMBOL}:`,
+        error.message || error,
+      );
     }
 
     await sleep(TRADE_INTERVAL_MS);
