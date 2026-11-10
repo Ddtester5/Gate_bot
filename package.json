@@ -1,0 +1,41 @@
+{
+  "name": "scalper",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "bot": "tsx bot.ts ",
+    "build": "esbuild bot.ts --bundle --platform=node --format=esm --packages=external --outdir=dist",
+    "start": "node dist/bot.js",
+    "stat": "npx tsx src/balance_pnl.ts > stat.txt 2>&1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ddkotl/scalper.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Ddkotl/scalper/issues"
+  },
+  "homepage": "https://github.com/Ddkotl/scalper#readme",
+  "dependencies": {
+    "axios": "^1.17.0",
+    "bybit-api": "^4.8.2",
+    "ccxt": "^4.5.56",
+    "cli-table3": "^0.6.5",
+    "date-fns": "^4.4.0",
+    "dayjs": "^1.11.21",
+    "dotenv": "^17.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "prettier": "^3.8.4",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  }
+}
