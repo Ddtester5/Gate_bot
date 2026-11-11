@@ -1,4 +1,3 @@
-
 import dayjs from "dayjs";
 import { client } from "./client";
 import { COINS_CONFIG } from "./config";
@@ -19,18 +18,17 @@ type SymbolStats = {
 
 // Периоды отчёта.
 const INTERVALS_CONFIG = [
-  { label: "1 час", hours: 1 },
-  { label: "2 часа", hours: 2 },
   { label: "6 часов", hours: 6 },
-  { label: "12 часов", hours: 12 },
-  { label: "1 день", hours: 24 },
-  { label: "2 дня", hours: 48 },
+  { label: "24 часа", hours: 24 },
   { label: "3 дня", hours: 72 },
   { label: "7 дней", hours: 168 },
-  { label: "2 недели", hours: 336 },
-  { label: "3 недели", hours: 504 },
-  { label: "4 недели", hours: 672 },
+  { label: "14 дней", hours: 336 },
+  { label: "21 день", hours: 504 },
+  { label: "30 дней", hours: 720 },
 ];
+
+// Сколько дней истории максимум загружаем.
+const HISTORY_DAYS = 30;
 
 export function getActiveSymbols(): string[] {
   return COINS_CONFIG.map((c) => c.SYMBOL);
@@ -48,7 +46,7 @@ export function getUsdtToTrades(): number {
   );
 }
 
-// Преобразуем BTCUSDT в BTC/USDT.
+// Преобразуем BTCUSDT в BTC/USDT с приоритетом defaultType.
 function normalizeSymbol(symbol: string): string {
   if (symbol.includes("/")) {
     return symbol;
@@ -56,9 +54,14 @@ function normalizeSymbol(symbol: string): string {
 
   const normalized = symbol.replace(/[-_]/g, "").toUpperCase();
 
-  const markets = Object.values(client.markets || {}) as any[];
+  const all = Object.values(client.markets || {}) as any[];
 
-  const market = markets.find((item) => {
+  const defaultType =
+    (client.options as any)?.defaultType ?? "spot";
+  const preferred = all.filter((m) => m.type === defaultType);
+  const pool = preferred.length ? preferred : all;
+
+  const market = pool.find((item) => {
     const marketSymbol = item.symbol
       ?.replace("/", "")
       .replace(":", "")
@@ -69,8 +72,7 @@ function normalizeSymbol(symbol: string): string {
       .toUpperCase();
 
     return (
-      marketSymbol === normalized ||
-      marketId === normalized
+      marketSymbol === normalized || marketId === normalized
     );
   });
 
@@ -102,7 +104,6 @@ async function getBalancesMap(): Promise<Record<string, number>> {
 
   for (const [coin, amount] of Object.entries(balance.total || {})) {
     const total = Number(amount);
-
     if (total > 0) {
       map[coin] = total;
     }
@@ -123,7 +124,6 @@ async function getPriceMap(
       const ticker = await client.fetchTicker(symbol);
 
       const price = Number(ticker.last);
-
       if (price > 0) {
         map[originalSymbol] = price;
       }
@@ -139,33 +139,46 @@ async function getPriceMap(
 }
 
 // 3. Получение истории сделок за указанный период.
-// Используем пагинацию CCXT через since и limit.
+// ВАЖНО для Gate.io: окно from…until должно быть ≤ 7 дней,
+// иначе API молча возвращает пустой массив. Поэтому режем на чанки.
 async function getTradesLastDays(
   originalSymbol: string,
-  daysWindow = 30,
+  daysWindow = HISTORY_DAYS,
 ): Promise<any[]> {
   const allTrades: any[] = [];
-
   const symbol = normalizeSymbol(originalSymbol);
 
   const now = Date.now();
   const targetStartTime =
     now - daysWindow * 24 * 60 * 60 * 1000;
 
-  const LIMIT = 100;
-  const MAX_PAGES = 500;
-
-  let since = targetStartTime;
+  const LIMIT = 1000;
+  const MAX_PAGES_PER_CHUNK = 50;
+  const CHUNK_MS = 7 * 24 * 60 * 60 * 1000;
 
   const seenTrades = new Set<string>();
+  let chunkStart = targetStartTime;
 
-  for (let page = 0; page < MAX_PAGES; page++) {
-    try {
-      const trades = await client.fetchMyTrades(
-        symbol,
-        since,
-        LIMIT,
-      );
+  while (chunkStart < now) {
+    const chunkEnd = Math.min(chunkStart + CHUNK_MS, now);
+    let since = chunkStart;
+
+    for (let page = 0; page < MAX_PAGES_PER_CHUNK; page++) {
+      let trades: any[] = [];
+
+      try {
+        trades = await client.fetchMyTrades(symbol, since, LIMIT, {
+          until: chunkEnd,
+        });
+      } catch (error: any) {
+        console.error(
+          `[${originalSymbol}] fetchMyTrades ${new Date(
+            since,
+          ).toISOString()}..${new Date(chunkEnd).toISOString()}:`,
+          error.message || error,
+        );
+        break;
+      }
 
       if (!trades || trades.length === 0) {
         break;
@@ -174,17 +187,9 @@ async function getTradesLastDays(
       let latestTimestamp = since;
 
       for (const trade of trades) {
-        if (!trade.timestamp) {
-          continue;
-        }
-
-        if (trade.timestamp < targetStartTime) {
-          continue;
-        }
-
-        if (trade.timestamp > now) {
-          continue;
-        }
+        if (!trade.timestamp) continue;
+        if (trade.timestamp < targetStartTime) continue;
+        if (trade.timestamp > now) continue;
 
         const uniqueKey = trade.id
           ? String(trade.id)
@@ -205,44 +210,22 @@ async function getTradesLastDays(
         }
       }
 
-      // Защита от бесконечной пагинации,
-      // если биржа повторяет одну и ту же страницу.
-      if (latestTimestamp < since) {
-        break;
-      }
+      if (latestTimestamp <= since) break;
+      if (trades.length < LIMIT) break;
 
-      if (latestTimestamp === since) {
-        break;
-      }
-
-      // Если получено меньше лимита, следующие страницы
-      // обычно уже не нужны.
-      if (trades.length < LIMIT) {
-        break;
-      }
-
-      // Следующий запрос начинаем после последней сделки.
       since = latestTimestamp + 1;
-
-    } catch (error: any) {
-      console.error(
-        `Ошибка загрузки истории сделок ${originalSymbol}:`,
-        error.message || error,
-      );
-
-      break;
     }
+
+    if (chunkEnd >= now) break;
+    chunkStart = chunkEnd + 1;
   }
 
-  // Сортируем от старых сделок к новым.
   return allTrades.sort(
     (a, b) => Number(a.execTime) - Number(b.execTime),
   );
 }
 
 // 4. Расчёт статистики периода.
-// Комиссия 0.1% оставлена как оценка, как в исходной версии.
-// Это не обязательно совпадает с фактической комиссией Gate.io.
 function calculateStatsForPeriod(
   symbol: string,
   trades: any[],
@@ -268,7 +251,6 @@ function calculateStatsForPeriod(
   }
 
   const FEE_RATE = 0.001;
-
   const earliestPrice = Number(trades[0].execPrice);
 
   let rollingBuyQtyWithFee = 0;
@@ -277,18 +259,15 @@ function calculateStatsForPeriod(
   for (const trade of trades) {
     const price = Number(trade.execPrice);
     const quantity = Number(trade.execQty);
-
     const rawValue = price * quantity;
 
     if (trade.side === "Buy") {
       stats.buyVolume += rawValue;
 
       const netQty = quantity * (1 - FEE_RATE);
-
       stats.buyQty += netQty;
       rollingBuyQtyWithFee += netQty;
       rollingBuyVol += rawValue;
-
     } else {
       const netValue = rawValue * (1 - FEE_RATE);
 
@@ -309,15 +288,12 @@ function calculateStatsForPeriod(
 
   const totalSellVolumeWithWallet =
     stats.sellVolume + walletValue;
-
   const totalSellQtyWithWallet =
     stats.sellQty + realWalletBalance;
 
-  const qtyDelta =
-    stats.buyQty - totalSellQtyWithWallet;
+  const qtyDelta = stats.buyQty - totalSellQtyWithWallet;
 
   let historyAdjustment = 0;
-
   if (qtyDelta > 0) {
     historyAdjustment = qtyDelta * earliestPrice;
   } else if (qtyDelta < 0) {
@@ -362,13 +338,27 @@ async function calculateMultiPeriodPnl() {
     for (const symbol of symbols) {
       console.log(`Загрузка истории сделок: ${symbol}`);
 
-      // Загружаем историю за 30 дней.
-      const allTrades30d = await getTradesLastDays(symbol, 30);
-
-      if (allTrades30d.length === 0) {
-        console.log(`Нет сделок за последние 30 дней: ${symbol}`);
+      let allTrades: any[] = [];
+      try {
+        allTrades = await getTradesLastDays(symbol, HISTORY_DAYS);
+      } catch (error: any) {
+        console.error(
+          `Не удалось загрузить историю ${symbol}:`,
+          error.message || error,
+        );
         continue;
       }
+
+      if (allTrades.length === 0) {
+        console.log(
+          `Нет сделок за последние ${HISTORY_DAYS} дней: ${symbol}`,
+        );
+        continue;
+      }
+
+      console.log(
+        `  загружено сделок (${HISTORY_DAYS}д): ${allTrades.length}`,
+      );
 
       const currentPrice = prices[symbol] || 0;
 
@@ -382,13 +372,13 @@ async function calculateMultiPeriodPnl() {
         const cutoffTime =
           now - config.hours * 60 * 60 * 1000;
 
-        const filteredTrades = allTrades30d.filter(
-          (trade) =>
-            Number(trade.execTime) >= cutoffTime,
+        const filteredTrades = allTrades.filter(
+          (trade) => Number(trade.execTime) >= cutoffTime,
         );
 
         if (filteredTrades.length > 0) {
-          periodResults[config.hours][symbol] =
+          // Фикс TS2532: ??= гарантирует существование bucket.
+          (periodResults[config.hours] ??= {})[symbol] =
             calculateStatsForPeriod(
               symbol,
               filteredTrades,
@@ -400,33 +390,33 @@ async function calculateMultiPeriodPnl() {
     }
 
     // Вывод отчёта.
-    console.clear();
-
     console.log(
-      "================================================================",
+      "\n================================================================",
     );
-
     console.log(
-      ` МУЛЬТИПЕРИОДНЫЙ ОТЧЕТ (Текущее время: ${dayjs().format("HH:mm:ss")})`,
+      ` МУЛЬТИПЕРИОДНЫЙ ОТЧЕТ (Текущее время: ${dayjs().format(
+        "YYYY-MM-DD HH:mm:ss",
+      )})`,
     );
-
     console.log(
       "================================================================\n",
     );
 
     for (const config of INTERVALS_CONFIG) {
-      const statsMap = periodResults[config.hours] || {};
+      const statsMap = periodResults[config.hours] ?? {};
 
       let totalSessionPnl = 0;
+      let totalTrades = 0;
 
       const rows = Object.values(statsMap).map((stats) => {
         totalSessionPnl += stats.pnl;
+        totalTrades += stats.tradesCount;
 
         return {
           Монета: stats.symbol,
           "PnL (USDT)": stats.pnl.toFixed(2),
           Сделки: stats.tradesCount,
-          "Обьем круга (USDT)": getUsdtQtyToSymbol(
+          "Объем круга (USDT)": getUsdtQtyToSymbol(
             stats.symbol,
           ),
         };
@@ -436,11 +426,9 @@ async function calculateMultiPeriodPnl() {
         console.log(
           `⏱️ ПЕРИОД: ${config.label} — Нет сделок за этот период.`,
         );
-
         console.log(
           "----------------------------------------------------------------\n",
         );
-
         continue;
       }
 
@@ -451,14 +439,13 @@ async function calculateMultiPeriodPnl() {
       console.log(
         `ИТОГ ЗА ${config.label}: ${
           totalSessionPnl >= 0 ? "+" : ""
-        }${totalSessionPnl.toFixed(2)} USDT`,
+        }${totalSessionPnl.toFixed(2)} USDT  |  сделок: ${totalTrades}`,
       );
 
       console.log(
         "----------------------------------------------------------------\n",
       );
     }
-
   } catch (error: any) {
     console.error(
       "Ошибка формирования отчёта PnL:",
