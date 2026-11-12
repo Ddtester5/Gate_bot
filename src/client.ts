@@ -12,7 +12,7 @@ const client = new ExchangeClass({
   apiKey: API_KEY,
   secret: SECRET_KEY,
   enableRateLimit: true,
-  timeout: 30000,
+  timeout: 60000,
   options: {
     defaultType: "spot",
   },
