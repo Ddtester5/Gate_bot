@@ -1,8 +1,7 @@
-
-import { client } from "./client";
+import type { Exchange } from "ccxt";
 
 // Преобразуем BTCUSDT в формат CCXT BTC/USDT.
-function normalizeSymbol(symbol: string): string {
+function normalizeSymbol(client: Exchange, symbol: string): string {
   if (symbol.includes("/")) {
     return symbol;
   }
@@ -12,7 +11,10 @@ function normalizeSymbol(symbol: string): string {
   const markets = Object.values(client.markets || {}) as any[];
 
   const market = markets.find((item) => {
-    const marketSymbol = item.symbol?.replace("/", "").replace(":", "").toUpperCase();
+    const marketSymbol = item.symbol
+      ?.replace("/", "")
+      .replace(":", "")
+      .toUpperCase();
     const marketId = item.id?.replace(/[-_]/g, "").toUpperCase();
 
     return marketSymbol === normalized || marketId === normalized;
@@ -28,8 +30,7 @@ function normalizeSymbol(symbol: string): string {
 // Приводим ответ CCXT к формату, который ожидает strategy.ts.
 function normalizeOrder(order: any) {
   const timestamp =
-    order.timestamp ??
-    (order.datetime ? Date.parse(order.datetime) : 0);
+    order.timestamp ?? (order.datetime ? Date.parse(order.datetime) : 0);
 
   return {
     ...order,
@@ -43,6 +44,7 @@ function normalizeOrder(order: any) {
 
 // Лимитный ордер GTC.
 export async function placeLimitOrder(
+  client: Exchange,
   side: "BUY" | "SELL",
   price: number,
   quantity: string,
@@ -52,24 +54,15 @@ export async function placeLimitOrder(
   try {
     await client.loadMarkets();
 
-    const ccxtSymbol = normalizeSymbol(symbol);
+    const ccxtSymbol = normalizeSymbol(client, symbol);
     const ccxtSide = side.toLowerCase();
 
     // Используем точность и ограничения самой биржи через CCXT.
-    const formattedPrice = client.priceToPrecision(
-      ccxtSymbol,
-      price,
-    );
+    const formattedPrice = client.priceToPrecision(ccxtSymbol, price);
 
-    const formattedQuantity = client.amountToPrecision(
-      ccxtSymbol,
-      quantity,
-    );
+    const formattedQuantity = client.amountToPrecision(ccxtSymbol, quantity);
 
-    if (
-      Number(formattedPrice) <= 0 ||
-      Number(formattedQuantity) <= 0
-    ) {
+    if (Number(formattedPrice) <= 0 || Number(formattedQuantity) <= 0) {
       console.error("❌ Некорректная цена или количество после округления");
       return null;
     }
@@ -94,37 +87,30 @@ export async function placeLimitOrder(
       orderId: order.id,
     };
   } catch (e: any) {
-    console.error(
-      `Ошибка лимитного ордера ${side}:`,
-      e.message || e,
-    );
+    console.error(`Ошибка лимитного ордера ${side}:`, e.message || e);
     return null;
   }
 }
 
 // Рыночная продажа.
 export async function placeMarketSell(
+  client: Exchange,
   quantity: number,
   symbol: string,
 ) {
   try {
     await client.loadMarkets();
 
-    const ccxtSymbol = normalizeSymbol(symbol);
+    const ccxtSymbol = normalizeSymbol(client, symbol);
 
-    const formattedQuantity = client.amountToPrecision(
-      ccxtSymbol,
-      quantity,
-    );
+    const formattedQuantity = client.amountToPrecision(ccxtSymbol, quantity);
 
     if (Number(formattedQuantity) <= 0) {
       console.error("❌ Некорректное количество для рыночной продажи");
       return null;
     }
 
-    console.log(
-      `[ОРДЕР] MARKET SELL ${formattedQuantity} ${ccxtSymbol}`,
-    );
+    console.log(`[ОРДЕР] MARKET SELL ${formattedQuantity} ${ccxtSymbol}`);
 
     const order = await client.createOrder(
       ccxtSymbol,
@@ -138,39 +124,34 @@ export async function placeMarketSell(
       orderId: order.id,
     };
   } catch (e: any) {
-    console.error(
-      "Ошибка маркет ордера SELL:",
-      e.message || e,
-    );
+    console.error("Ошибка маркет ордера SELL:", e.message || e);
     return null;
   }
 }
 
 // Отмена ордера.
 export async function cancelOrder(
+  client: Exchange,
   orderId: string,
   symbol: string,
 ) {
   try {
-    const ccxtSymbol = normalizeSymbol(symbol);
+    const ccxtSymbol = normalizeSymbol(client, symbol);
 
     await client.cancelOrder(orderId, ccxtSymbol);
 
     console.log(`Ордер ${orderId} отменен`);
   } catch (e: any) {
-    console.error(
-      `Не удалось отменить ордер ${orderId}:`,
-      e.message || e,
-    );
+    console.error(`Не удалось отменить ордер ${orderId}:`, e.message || e);
   }
 }
 
 // Получение открытых ордеров.
-export async function getOpenOrders(symbol: string) {
+export async function getOpenOrders(client: Exchange, symbol: string) {
   try {
     await client.loadMarkets();
 
-    const ccxtSymbol = normalizeSymbol(symbol);
+    const ccxtSymbol = normalizeSymbol(client, symbol);
 
     const orders = await client.fetchOpenOrders(ccxtSymbol);
 
@@ -189,10 +170,7 @@ export async function getOpenOrders(symbol: string) {
       currentSellOrder,
     };
   } catch (e: any) {
-    console.error(
-      "Ошибка получения открытых ордеров:",
-      e.message || e,
-    );
+    console.error("Ошибка получения открытых ордеров:", e.message || e);
 
     return {
       currentBuyOrder: null,

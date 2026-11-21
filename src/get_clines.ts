@@ -1,8 +1,8 @@
 
-import { client } from "./client";
+import type { Exchange } from "ccxt";
 
 // Преобразуем старый формат BTCUSDT в формат CCXT BTC/USDT.
-function normalizeSymbol(symbol: string): string {
+function normalizeSymbol(client: Exchange, symbol: string): string {
   if (symbol.includes("/")) {
     return symbol;
   }
@@ -41,6 +41,7 @@ function normalizeTimeframe(interval: string): string {
 }
 
 export async function getKlines(
+  client: Exchange,
   symbol: string,
   interval = "1",
   limit = 15,
@@ -49,7 +50,7 @@ export async function getKlines(
     // Убеждаемся, что рынки загружены.
     await client.loadMarkets();
 
-    const ccxtSymbol = normalizeSymbol(symbol);
+    const ccxtSymbol = normalizeSymbol(client, symbol);
     const timeframe = normalizeTimeframe(interval);
 
     // Проверяем поддержку таймфрейма биржей.

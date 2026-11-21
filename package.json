@@ -5,11 +5,11 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "bot": "tsx bot.ts ",
+    "bot:gate": "tsx bot.ts gateio",
     "build": "esbuild bot.ts --bundle --platform=node --format=esm --packages=external --outdir=dist",
-    "start": "node dist/bot.js",
-    "stat": "npx tsx src/balance_pnl.ts > stat.txt 2>&1"
+    "start:gate": "node dist/bot.js gateio",
+    "stat:gate": "tsx src/stat/run_balance_pnl.ts gateio > stat_gateio.txt 2>&1",
+    "type":" tsc --noEmit"
   },
   "repository": {
     "type": "git",

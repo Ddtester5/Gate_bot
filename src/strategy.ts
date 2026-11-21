@@ -1,5 +1,6 @@
+import type { Exchange } from "ccxt";
 import { analyzeMarket } from "./analize_market";
-import type { CoinConfig } from "./configs/gate_config";
+import type { CoinConfig } from "./configs/types";
 import {
   cancelOrder,
   getOpenOrders,
@@ -10,7 +11,7 @@ import { getLastBuyPrice } from "./trades";
 import { sleep } from "./utils";
 import { getAssetBalance } from "./wallet";
 
-export async function tradeLoop(config: CoinConfig) {
+export async function tradeLoop( client: Exchange,config: CoinConfig) {
   const {
     SYMBOL,
     USDT_QUANTITY,
@@ -40,6 +41,7 @@ export async function tradeLoop(config: CoinConfig) {
       // ==========================================
 
       const market = await analyzeMarket(
+        client,
         SYMBOL,
         ANALIZE_INTERVAL_CANDLES,
         LOOCAL_LOOKBACK,
@@ -54,9 +56,9 @@ export async function tradeLoop(config: CoinConfig) {
         continue;
       }
 
-      const { currentBuyOrder, currentSellOrder } = await getOpenOrders(SYMBOL);
+      const { currentBuyOrder, currentSellOrder } = await getOpenOrders(client, SYMBOL);
 
-      const { coinBalance, usdtBalance } = await getAssetBalance(ASSET_NAME);
+      const { coinBalance, usdtBalance } = await getAssetBalance(client, ASSET_NAME);
 
       if (
         coinBalance === null ||
@@ -95,7 +97,7 @@ export async function tradeLoop(config: CoinConfig) {
       // ==========================================
 
       if (coinValueInUsdt >= MIN_NOTIONAL) {
-        const buyPrice = await getLastBuyPrice(SYMBOL);
+        const buyPrice = await getLastBuyPrice(client, SYMBOL);
 
         // Если история сделок недоступна, не рассчитываем
         // стоп-лосс от нулевой цены.
@@ -108,11 +110,11 @@ export async function tradeLoop(config: CoinConfig) {
             );
 
             for (const order of currentBuyOrder) {
-              await cancelOrder(order.orderId, SYMBOL);
+              await cancelOrder(client, order.orderId, SYMBOL);
             }
 
             for (const order of currentSellOrder) {
-              await cancelOrder(order.orderId, SYMBOL);
+              await cancelOrder(client, order.orderId, SYMBOL);
             }
 
             // Количество дополнительно округляется
@@ -127,7 +129,7 @@ export async function tradeLoop(config: CoinConfig) {
             const formattedStopQty = safeCoinBalance.toFixed(decimalsQty);
 
             if (Number(formattedStopQty) > 0) {
-              await placeMarketSell(Number(formattedStopQty), SYMBOL);
+              await placeMarketSell(client,Number(formattedStopQty), SYMBOL);
             }
 
             console.log(`😴 [${SYMBOL}] Пауза после стоп-лосса.`);
@@ -153,7 +155,7 @@ export async function tradeLoop(config: CoinConfig) {
           if (buyAge >= ORDER_TIMEOUT_MS) {
             console.log(`⏰ [${SYMBOL}] Ордер BUY просрочен. Отменяем.`);
 
-            await cancelOrder(order.orderId, SYMBOL);
+            await cancelOrder(client, order.orderId, SYMBOL);
           }
         }
       }
@@ -165,7 +167,7 @@ export async function tradeLoop(config: CoinConfig) {
           if (sellAge >= ORDER_TIMEOUT_MS) {
             console.log(`⏰ [${SYMBOL}] Ордер SELL просрочен. Отменяем.`);
 
-            await cancelOrder(order.orderId, SYMBOL);
+            await cancelOrder(client, order.orderId, SYMBOL);
           }
         }
       }
@@ -205,6 +207,7 @@ export async function tradeLoop(config: CoinConfig) {
         }
 
         const sellOrder = await placeLimitOrder(
+          client,
           "SELL",
           targetSellPrice,
           formattedSellQty,
@@ -259,6 +262,7 @@ export async function tradeLoop(config: CoinConfig) {
         );
 
         const order = await placeLimitOrder(
+          client,
           "BUY",
           targetBuyPrice,
           formattedQty,

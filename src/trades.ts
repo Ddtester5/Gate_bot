@@ -1,7 +1,8 @@
+import type { Exchange } from "ccxt";
 
-import { client } from "./client";
 
 export async function getLastBuyPrice(
+  client: Exchange,
   symbol: string
 ): Promise<number | null> {
   try {

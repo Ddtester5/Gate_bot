@@ -1,34 +1,31 @@
-
-import { client } from "./client";
+import type { Exchange } from "ccxt";
 
 export async function getAssetBalance(
+  client: Exchange,
   assetName: string,
 ): Promise<{ coinBalance: number; usdtBalance: number }> {
   try {
-    await client.loadMarkets();
-
-    // Получаем балансы через CCXT.
     const balance = await client.fetchBalance();
 
-    // total — общий баланс, включая средства,
-    // заблокированные в открытых ордерах.
-    const coinBalance = Number(
-      balance.total?.[assetName] ?? 0
-    );
+    const getTotal = (asset: string): number => {
+      const value = balance.total?.[asset as keyof typeof balance.total];
 
-    const usdtBalance = Number(
-      balance.total?.USDT ?? 0
-    );
+      const result = Number(value ?? 0);
 
-    return {
-      coinBalance: Number.isFinite(coinBalance) ? coinBalance : 0,
-      usdtBalance: Number.isFinite(usdtBalance) ? usdtBalance : 0,
+      return Number.isFinite(result) ? result : 0;
     };
 
-  } catch (e: any) {
+    return {
+      coinBalance: getTotal(assetName),
+      usdtBalance: getTotal("USDT"),
+    };
+
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+
     console.error(
       `Ошибка при получении баланса ${assetName}:`,
-      e.message || e
+      message,
     );
 
     return {

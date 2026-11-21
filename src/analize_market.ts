@@ -1,4 +1,5 @@
 
+import type { Exchange } from "ccxt";
 import { getKlines } from "./get_clines";
 
 export interface MarketRegime {
@@ -18,6 +19,7 @@ export interface MarketRegime {
 }
 
 export async function analyzeMarket(
+  client: Exchange,
   symbol: string,
   lookbackCandles: number,
   localLookback: number,
@@ -29,6 +31,7 @@ export async function analyzeMarket(
   try {
     // Получаем свечи через CCXT.
     const klines = await getKlines(
+      client,
       symbol,
       candlesInterval,
       lookbackCandles,
