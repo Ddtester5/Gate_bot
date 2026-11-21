@@ -1,9 +1,8 @@
 import type { Exchange } from "ccxt";
 
-
 export async function getLastBuyPrice(
   client: Exchange,
-  symbol: string
+  symbol: string,
 ): Promise<number | null> {
   try {
     await client.loadMarkets();
@@ -22,14 +21,9 @@ export async function getLastBuyPrice(
           .replace(":", "")
           .toUpperCase();
 
-        const marketId = item.id
-          ?.replace(/[-_]/g, "")
-          .toUpperCase();
+        const marketId = item.id?.replace(/[-_]/g, "").toUpperCase();
 
-        return (
-          marketSymbol === normalized ||
-          marketId === normalized
-        );
+        return marketSymbol === normalized || marketId === normalized;
       });
 
       if (!market) {
@@ -40,20 +34,14 @@ export async function getLastBuyPrice(
     }
 
     // Получаем последние сделки пользователя.
-    const trades = await client.fetchMyTrades(
-      ccxtSymbol,
-      undefined,
-      50
-    );
+    const trades = await client.fetchMyTrades(ccxtSymbol, undefined, 50);
 
     if (!trades || trades.length === 0) {
       return null;
     }
 
     // Оставляем только покупки.
-    const buyTrades = trades.filter(
-      (trade: any) => trade.side === "buy"
-    );
+    const buyTrades = trades.filter((trade: any) => trade.side === "buy");
 
     if (buyTrades.length === 0) {
       return null;
@@ -61,8 +49,7 @@ export async function getLastBuyPrice(
 
     // Сортируем от новых сделок к старым.
     buyTrades.sort(
-      (a: any, b: any) =>
-        Number(b.timestamp || 0) - Number(a.timestamp || 0)
+      (a: any, b: any) => Number(b.timestamp || 0) - Number(a.timestamp || 0),
     );
 
     const lastBuy = buyTrades[0];
@@ -72,11 +59,10 @@ export async function getLastBuyPrice(
     }
 
     return Number(lastBuy.price);
-
   } catch (e: any) {
     console.error(
       `Ошибка получения последней покупки ${symbol}:`,
-      e.message || e
+      e.message || e,
     );
 
     return null;

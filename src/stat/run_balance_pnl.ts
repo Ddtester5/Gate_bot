@@ -1,6 +1,10 @@
 import "dotenv/config";
 import { calculateMultiPeriodPnl } from "./balance_pnl";
-import { createExchange, initializeExchange, type ExchangeId } from "../exchanges";
+import {
+  createExchange,
+  initializeExchange,
+  type ExchangeId,
+} from "../exchanges";
 import { EXCHANGES_CONFIG } from "../configs/exchanges.config";
 
 async function main(): Promise<void> {

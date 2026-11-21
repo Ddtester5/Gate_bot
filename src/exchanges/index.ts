@@ -1,7 +1,4 @@
-export {
-  createExchange,
-  initializeExchange,
-} from "./exchange.factory";
+export { createExchange, initializeExchange } from "./exchange.factory";
 
 export type {
   ExchangeConfig,

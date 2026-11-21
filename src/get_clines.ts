@@ -1,4 +1,3 @@
-
 import type { Exchange } from "ccxt";
 
 // Преобразуем старый формат BTCUSDT в формат CCXT BTC/USDT.
@@ -12,13 +11,13 @@ function normalizeSymbol(client: Exchange, symbol: string): string {
   const markets = Object.values(client.markets || {}) as any[];
 
   const market = markets.find((item) => {
-    const marketSymbol = item.symbol?.replace("/", "").replace(":", "").toUpperCase();
+    const marketSymbol = item.symbol
+      ?.replace("/", "")
+      .replace(":", "")
+      .toUpperCase();
     const marketId = item.id?.replace(/[-_]/g, "").toUpperCase();
 
-    return (
-      marketSymbol === normalized ||
-      marketId === normalized
-    );
+    return marketSymbol === normalized || marketId === normalized;
   });
 
   if (!market) {
@@ -54,10 +53,7 @@ export async function getKlines(
     const timeframe = normalizeTimeframe(interval);
 
     // Проверяем поддержку таймфрейма биржей.
-    if (
-      client.timeframes &&
-      !client.timeframes[timeframe]
-    ) {
+    if (client.timeframes && !client.timeframes[timeframe]) {
       throw new Error(
         `Таймфрейм ${timeframe} не поддерживается биржей ${client.id}`,
       );
@@ -71,20 +67,14 @@ export async function getKlines(
     );
 
     if (!candles || candles.length === 0) {
-      throw new Error(
-        `Биржа не вернула свечи для ${ccxtSymbol}`,
-      );
+      throw new Error(`Биржа не вернула свечи для ${ccxtSymbol}`);
     }
 
     // CCXT уже возвращает свечи от старых к новым.
     // Формат: [timestamp, open, high, low, close, volume].
     return candles;
-
   } catch (e: any) {
-    console.error(
-      `Ошибка при получении свечей для ${symbol}:`,
-      e.message || e,
-    );
+    console.error(`Ошибка при получении свечей для ${symbol}:`, e.message || e);
 
     throw e;
   }

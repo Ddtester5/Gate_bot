@@ -1,4 +1,3 @@
-
 import type { Exchange } from "ccxt";
 import { getKlines } from "./get_clines";
 
@@ -69,10 +68,7 @@ export async function analyzeMarket(
     if (isNaN(currentPrice)) return null;
 
     // Расчёт локальных уровней.
-    const safeLocalLookback = Math.min(
-      localLookback,
-      klines.length,
-    );
+    const safeLocalLookback = Math.min(localLookback, klines.length);
 
     const localKlines = klines.slice(-safeLocalLookback);
 
@@ -89,10 +85,7 @@ export async function analyzeMarket(
       if (high > localMaxPrice) localMaxPrice = high;
     }
 
-    if (
-      localMinPrice === Infinity ||
-      localMaxPrice === -Infinity
-    ) {
+    if (localMinPrice === Infinity || localMaxPrice === -Infinity) {
       localMinPrice = currentPrice;
       localMaxPrice = currentPrice;
     }
@@ -100,18 +93,12 @@ export async function analyzeMarket(
     const localRange = localMaxPrice - localMinPrice;
 
     // Метрики рыночного диапазона.
-    const rangePct =
-      anchor > 0
-        ? ((maxPrice - minPrice) / anchor) * 100
-        : 0;
+    const rangePct = anchor > 0 ? ((maxPrice - minPrice) / anchor) * 100 : 0;
 
     const driftPct =
-      anchor > 0
-        ? (Math.abs(currentPrice - anchor) / anchor) * 100
-        : 0;
+      anchor > 0 ? (Math.abs(currentPrice - anchor) / anchor) * 100 : 0;
 
-    const trendFactor =
-      rangePct > 0 ? driftPct / rangePct : 0;
+    const trendFactor = rangePct > 0 ? driftPct / rangePct : 0;
 
     const isSideways =
       rangePct > minRangePct &&
@@ -132,13 +119,8 @@ export async function analyzeMarket(
       localMaxPrice,
       localRange,
     };
-
   } catch (e: any) {
-    console.error(
-      symbol,
-      "analyzeMarket error:",
-      e.message || e,
-    );
+    console.error(symbol, "analyzeMarket error:", e.message || e);
 
     return null;
   }

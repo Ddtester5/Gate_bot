@@ -2,14 +2,11 @@ import type { CoinConfig } from "./types";
 
 export const BYBIT_COINS_CONFIG: CoinConfig[] = [
   {
-    SYMBOL: "CSPRUSDT",
-    USDT_QUANTITY: 150,
-    QTY_STEP: 1,
-    PRICE_STEP: 0.000001,
+    SYMBOL: "CSPR/USDT",
+    USDT_QUANTITY: 50,
     STOP_LOSS_PCT: 5,
     SELL_RANGE: 0.7,
     BUY_RANGE: 0.1,
-    MIN_NOTIONAL: 1.1,
     TRADE_INTERVAL_MS: 60000,
     INTERVAL_AFTER_STOPLOSS_MS: 5 * 60 * 60 * 1000,
     ORDER_TIMEOUT_MS: 30 * 60 * 1000,
@@ -22,14 +19,11 @@ export const BYBIT_COINS_CONFIG: CoinConfig[] = [
   },
 
   {
-    SYMBOL: "WLFIUSDT",
+    SYMBOL: "WLFI/USDT",
     USDT_QUANTITY: 50,
-    QTY_STEP: 1,
-    PRICE_STEP: 0.00001,
     STOP_LOSS_PCT: 10,
     SELL_RANGE: 0.7,
     BUY_RANGE: 0.1,
-    MIN_NOTIONAL: 1.1,
     TRADE_INTERVAL_MS: 60000,
     INTERVAL_AFTER_STOPLOSS_MS: 5 * 60 * 60 * 1000,
     ORDER_TIMEOUT_MS: 30 * 60 * 1000,

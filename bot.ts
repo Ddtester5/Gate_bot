@@ -1,9 +1,6 @@
 import "dotenv/config";
 
-import {
-  createExchange,
-  initializeExchange,
-} from "./src/exchanges";
+import { createExchange, initializeExchange } from "./src/exchanges";
 
 import type { ExchangeId } from "./src/exchanges";
 
@@ -19,15 +16,11 @@ async function startBot(exchangeId: ExchangeId): Promise<void> {
   }
 
   if (!botConfig.exchange.apiKey || !botConfig.exchange.secret) {
-    throw new Error(
-      `Не указаны API-ключи для ${exchangeId}`,
-    );
+    throw new Error(`Не указаны API-ключи для ${exchangeId}`);
   }
 
   if (botConfig.coins.length === 0) {
-    throw new Error(
-      `Не настроены торговые пары для ${exchangeId}`,
-    );
+    throw new Error(`Не настроены торговые пары для ${exchangeId}`);
   }
 
   // Создаём отдельный клиент
@@ -40,13 +33,11 @@ async function startBot(exchangeId: ExchangeId): Promise<void> {
     `[CCXT, ${exchangeId.toUpperCase()}] Запуск торговли на ${botConfig.coins.length} парах...`,
   );
 
-  const tradingPromises = botConfig.coins.map(
-    async (coinConfig, index) => {
-      await sleep(index * 4444);
+  const tradingPromises = botConfig.coins.map(async (coinConfig, index) => {
+    await sleep(index * 4444);
 
-      return tradeLoop(exchange.client, coinConfig);
-    },
-  );
+    return tradeLoop(exchange.client, coinConfig);
+  });
 
   await Promise.all(tradingPromises);
 }
@@ -55,9 +46,7 @@ async function startBot(exchangeId: ExchangeId): Promise<void> {
 const exchangeId = process.argv[2] as ExchangeId;
 
 if (!exchangeId) {
-  console.error(
-    "❌ Укажите биржу: gateio, bingx или bybit",
-  );
+  console.error("❌ Укажите биржу: gateio, bingx или bybit");
   process.exit(1);
 }
 

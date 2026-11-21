@@ -11,14 +11,11 @@ import { getLastBuyPrice } from "./trades";
 import { sleep } from "./utils";
 import { getAssetBalance } from "./wallet";
 
-export async function tradeLoop( client: Exchange,config: CoinConfig) {
+export async function tradeLoop(client: Exchange, config: CoinConfig) {
   const {
     SYMBOL,
     USDT_QUANTITY,
-    QTY_STEP,
-    PRICE_STEP,
     STOP_LOSS_PCT,
-    MIN_NOTIONAL,
     INTERVAL_AFTER_STOPLOSS_MS,
     ORDER_TIMEOUT_MS,
     TRADE_INTERVAL_MS,
@@ -31,8 +28,37 @@ export async function tradeLoop( client: Exchange,config: CoinConfig) {
     SELL_RANGE,
     LOOCAL_LOOKBACK,
   } = config;
-  const ASSET_NAME = config.SYMBOL.replace(/USDT$/, "");
-  console.log(`🚀 Робот запущен для пары ${SYMBOL} через CCXT.`);
+
+  // Получаем правила торговли для пары непосредственно из CCXT.
+  const marketInfo = client.market(SYMBOL);
+
+  const QTY_STEP = Number(marketInfo.precision.amount);
+  const PRICE_STEP = Number(marketInfo.precision.price);
+  const MIN_NOTIONAL = marketInfo?.limits?.cost?.min || 4;
+
+  if (
+    !Number.isFinite(QTY_STEP) ||
+    QTY_STEP <= 0 ||
+    !Number.isFinite(PRICE_STEP) ||
+    PRICE_STEP <= 0 ||
+    MIN_NOTIONAL === undefined ||
+    MIN_NOTIONAL === null
+  ) {
+    throw new Error(
+      `[${SYMBOL}] Не удалось получить торговые ограничения с ${client.id}. ` +
+        `amount precision: ${marketInfo.precision.amount}, ` +
+        `price precision: ${marketInfo.precision.price}, ` +
+        `min cost: ${MIN_NOTIONAL}`,
+    );
+  }
+
+  const ASSET_NAME = config.SYMBOL.replace(/USDT$/, "").replace(/\//, "");
+
+  console.log(
+    `🚀 Робот запущен: ${SYMBOL} | ${client.id} | ` +
+      `QTY_STEP: ${QTY_STEP} | PRICE_STEP: ${PRICE_STEP} | ` +
+      `MIN_NOTIONAL: ${MIN_NOTIONAL}`,
+  );
 
   while (true) {
     try {
@@ -56,9 +82,14 @@ export async function tradeLoop( client: Exchange,config: CoinConfig) {
         continue;
       }
 
-      const { currentBuyOrder, currentSellOrder } = await getOpenOrders(client, SYMBOL);
-
-      const { coinBalance, usdtBalance } = await getAssetBalance(client, ASSET_NAME);
+      const { currentBuyOrder, currentSellOrder } = await getOpenOrders(
+        client,
+        SYMBOL,
+      );
+      const { coinBalance, usdtBalance } = await getAssetBalance(
+        client,
+        ASSET_NAME,
+      );
 
       if (
         coinBalance === null ||
@@ -119,17 +150,13 @@ export async function tradeLoop( client: Exchange,config: CoinConfig) {
 
             // Количество дополнительно округляется
             // по точности рынка внутри CCXT.
-            const qtyStepNum = Number(QTY_STEP);
-
-            const decimalsQty =
-              qtyStepNum < 1 && qtyStepNum > 0
-                ? Math.round(-Math.log10(qtyStepNum))
-                : 0;
-
-            const formattedStopQty = safeCoinBalance.toFixed(decimalsQty);
+            const formattedStopQty = client.amountToPrecision(
+              SYMBOL,
+              safeCoinBalance,
+            );
 
             if (Number(formattedStopQty) > 0) {
-              await placeMarketSell(client,Number(formattedStopQty), SYMBOL);
+              await placeMarketSell(client, Number(formattedStopQty), SYMBOL);
             }
 
             console.log(`😴 [${SYMBOL}] Пауза после стоп-лосса.`);
@@ -185,19 +212,10 @@ export async function tradeLoop( client: Exchange,config: CoinConfig) {
         if (targetSellPrice < minAllowedSellPrice) {
           targetSellPrice = minAllowedSellPrice;
         }
-
-        const qtyStepNum = Number(QTY_STEP);
-
-        const decimalsQty =
-          qtyStepNum < 1 && qtyStepNum > 0
-            ? Math.round(-Math.log10(qtyStepNum))
-            : 0;
-
-        const factor = Math.pow(10, decimalsQty);
-
-        const formattedSellQty = (
-          Math.floor(safeCoinBalance * factor) / factor
-        ).toFixed(decimalsQty);
+        const formattedSellQty = client.amountToPrecision(
+          SYMBOL,
+          safeCoinBalance,
+        );
 
         if (Number(formattedSellQty) <= 0) {
           console.log(`⚠️ [${SYMBOL}] Недостаточный баланс для продажи.`);
@@ -244,9 +262,7 @@ export async function tradeLoop( client: Exchange,config: CoinConfig) {
 
         const coinQty = (usdtToTrade * 0.99) / market.currentPrice;
 
-        const decimalsQty = QTY_STEP.toString().split(".")[1]?.length || 0;
-
-        const formattedQty = coinQty.toFixed(decimalsQty);
+        const formattedQty = client.amountToPrecision(SYMBOL, coinQty);
 
         let targetBuyPrice =
           market.localMinPrice + market.localRange * BUY_RANGE;
