@@ -2,6 +2,7 @@ import type { ExchangeConfig, ExchangeId } from "../exchanges";
 import type { CoinConfig } from "./types";
 
 import { GATE_COINS_CONFIG } from "./gate_config";
+import { BYBIT_COINS_CONFIG } from "./bybit_config";
 
 interface BotExchangeConfig {
   exchange: ExchangeConfig;
@@ -42,6 +43,6 @@ export const EXCHANGES_CONFIG: Record<ExchangeId, BotExchangeConfig> = {
       enableRateLimit: true,
       timeout: 60000,
     },
-    coins: [],
+    coins: BYBIT_COINS_CONFIG,
   },
 };
