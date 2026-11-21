@@ -1,46 +1,4 @@
-import * as dotenv from "dotenv";
-
-dotenv.config();
-
-// Выбор биржи. Сейчас используем Gate.io через CCXT.
-export const EXCHANGE_ID = process.env.EXCHANGE_ID || "gateio";
-
-// Ключи Gate.io.
-// API_KEY и SECRET_KEY оставлены как общие имена,
-// чтобы постепенно переводить остальные файлы без массовых изменений.
-export const API_KEY = process.env.GATE_API_KEY || process.env.API_KEY || "";
-
-export const SECRET_KEY =
-  process.env.GATE_SECRET_KEY || process.env.SECRET_KEY || "";
-
-if (!API_KEY || !SECRET_KEY) {
-  console.error(
-    "❌ Ошибка: Укажите GATE_API_KEY и GATE_SECRET_KEY в файле .env",
-  );
-  process.exit(1);
-}
-
-// Интерфейс для индивидуальных настроек каждой монеты
-export interface CoinConfig {
-  SYMBOL: string;
-  USDT_QUANTITY: number;
-  QTY_STEP: number;
-  PRICE_STEP: number;
-  STOP_LOSS_PCT: number;
-  SELL_RANGE: number;
-  BUY_RANGE: number;
-  MIN_NOTIONAL: number;
-  TRADE_INTERVAL_MS: number;
-  INTERVAL_AFTER_STOPLOSS_MS: number;
-  ORDER_TIMEOUT_MS: number;
-
-  ANALIZE_INTERVAL_CANDLES: number; // Необязательный параметр, если нужно изменить интервал анализа
-  CANDLES_INTERVAL: string; // Необязательный параметр, если нужно изменить интервал свечей для анализа
-  LOOCAL_LOOKBACK: number;
-  MIN_RANGE_PCT: number; // Необязательный параметр для минимального диапазона в процентах
-  MAX_RANGE_PCT: number; // Необязательный параметр для максимального диапазона в процентах
-  MAX_TREND_FACTOR: number; // Необязательный параметр для максимального трендового фактора
-}
+import type { CoinConfig } from "./types";
 
 export const GATE_COINS_CONFIG: CoinConfig[] = [
   {

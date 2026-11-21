@@ -1,6 +1,6 @@
 import dayjs from "dayjs";
 import { client } from "./client";
-import { COINS_CONFIG } from "./gate_config";
+import { COINS_CONFIG } from "./configs/gate_config";
 
 type SymbolStats = {
   symbol: string;

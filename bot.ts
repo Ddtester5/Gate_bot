@@ -1,5 +1,5 @@
 import { initializeExchange } from "./src/client";
-import { GATE_COINS_CONFIG } from "./src/gate_config";
+import { GATE_COINS_CONFIG } from "./src/configs/gate_config";
 import { tradeLoop } from "./src/strategy";
 import { sleep } from "./src/utils";
 

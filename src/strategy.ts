@@ -1,5 +1,5 @@
 import { analyzeMarket } from "./analize_market";
-import type { CoinConfig } from "./gate_config";
+import type { CoinConfig } from "./configs/gate_config";
 import {
   cancelOrder,
   getOpenOrders,

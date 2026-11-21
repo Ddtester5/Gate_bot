@@ -1,16 +1,15 @@
 import ccxt from "ccxt";
-import { API_KEY, EXCHANGE_ID, SECRET_KEY } from "./gate_config";
+import { GATE_API_KEY, GATE_EXCHANGE_ID, GATE_SECRET_KEY } from "./configs/const";
 
-// Создаём клиент выбранной биржи через CCXT.
-const ExchangeClass = (ccxt as any)[EXCHANGE_ID];
+const ExchangeClass = (ccxt as any)[GATE_EXCHANGE_ID];
 
 if (!ExchangeClass) {
-  throw new Error(`❌ CCXT не поддерживает биржу: ${EXCHANGE_ID}`);
+  throw new Error(`❌ CCXT не поддерживает биржу: ${GATE_EXCHANGE_ID}`);
 }
 
 const client = new ExchangeClass({
-  apiKey: API_KEY,
-  secret: SECRET_KEY,
+  apiKey: GATE_API_KEY,
+  secret: GATE_SECRET_KEY,
   enableRateLimit: true,
   timeout: 60000,
   options: {
@@ -18,10 +17,9 @@ const client = new ExchangeClass({
   },
 });
 
-// Загружаем рынки перед началом работы бота.
 export async function initializeExchange(): Promise<void> {
   await client.loadMarkets();
-  console.log(`✅ Подключено к бирже: ${EXCHANGE_ID}`);
+  console.log(`✅ Подключено к бирже: ${GATE_EXCHANGE_ID}`);
 }
 
 export default client;
