@@ -30,7 +30,6 @@ export interface CoinConfig {
   SELL_RANGE: number;
   BUY_RANGE: number;
   MIN_NOTIONAL: number;
-  ASSET_NAME: string;
   TRADE_INTERVAL_MS: number;
   INTERVAL_AFTER_STOPLOSS_MS: number;
   ORDER_TIMEOUT_MS: number;
@@ -43,7 +42,7 @@ export interface CoinConfig {
   MAX_TREND_FACTOR: number; // Необязательный параметр для максимального трендового фактора
 }
 
-export const COINS_CONFIG: CoinConfig[] = [
+export const GATE_COINS_CONFIG: CoinConfig[] = [
   {
     SYMBOL: "ALEUSDT",
     USDT_QUANTITY: 10,
@@ -53,11 +52,9 @@ export const COINS_CONFIG: CoinConfig[] = [
     SELL_RANGE: 0.9,
     BUY_RANGE: 0.15,
     MIN_NOTIONAL: 3.1,
-    ASSET_NAME: "ALE",
     TRADE_INTERVAL_MS: 10000,
     INTERVAL_AFTER_STOPLOSS_MS: 2 * 60 * 60 * 1000,
     ORDER_TIMEOUT_MS: 10 * 60 * 1000,
-
     ANALIZE_INTERVAL_CANDLES: 500,
     CANDLES_INTERVAL: "15m",
     LOOCAL_LOOKBACK: 500,
@@ -75,11 +72,9 @@ export const COINS_CONFIG: CoinConfig[] = [
     SELL_RANGE: 0.6,
     BUY_RANGE: 0.1,
     MIN_NOTIONAL: 3.1,
-    ASSET_NAME: "PAAL",
     TRADE_INTERVAL_MS: 60000,
     INTERVAL_AFTER_STOPLOSS_MS: 5 * 60 * 60 * 1000,
     ORDER_TIMEOUT_MS: 30 * 60 * 1000,
-
     ANALIZE_INTERVAL_CANDLES: 500,
     CANDLES_INTERVAL: "5m",
     LOOCAL_LOOKBACK: 500,
@@ -87,7 +82,7 @@ export const COINS_CONFIG: CoinConfig[] = [
     MAX_RANGE_PCT: 500,
     MAX_TREND_FACTOR: 0.99,
   },
-   {
+  {
     SYMBOL: "GLMRUSDT",
     USDT_QUANTITY: 10,
     QTY_STEP: 0.01,
@@ -96,11 +91,9 @@ export const COINS_CONFIG: CoinConfig[] = [
     SELL_RANGE: 0.5,
     BUY_RANGE: 0.05,
     MIN_NOTIONAL: 3.1,
-    ASSET_NAME: "GLMR",
     TRADE_INTERVAL_MS: 60000,
     INTERVAL_AFTER_STOPLOSS_MS: 5 * 60 * 60 * 1000,
     ORDER_TIMEOUT_MS: 30 * 60 * 1000,
-
     ANALIZE_INTERVAL_CANDLES: 300,
     CANDLES_INTERVAL: "30m",
     LOOCAL_LOOKBACK: 300,
@@ -108,7 +101,7 @@ export const COINS_CONFIG: CoinConfig[] = [
     MAX_RANGE_PCT: 70,
     MAX_TREND_FACTOR: 0.99,
   },
-    {
+  {
     SYMBOL: "XNLUSDT",
     USDT_QUANTITY: 10,
     QTY_STEP: 0.01,
@@ -117,11 +110,9 @@ export const COINS_CONFIG: CoinConfig[] = [
     SELL_RANGE: 0.6,
     BUY_RANGE: 0.15,
     MIN_NOTIONAL: 3.1,
-    ASSET_NAME: "XNL",
     TRADE_INTERVAL_MS: 60000,
     INTERVAL_AFTER_STOPLOSS_MS: 5 * 60 * 60 * 1000,
     ORDER_TIMEOUT_MS: 30 * 60 * 1000,
-
     ANALIZE_INTERVAL_CANDLES: 500,
     CANDLES_INTERVAL: "5m",
     LOOCAL_LOOKBACK: 500,
@@ -129,7 +120,7 @@ export const COINS_CONFIG: CoinConfig[] = [
     MAX_RANGE_PCT: 100,
     MAX_TREND_FACTOR: 0.99,
   },
-      {
+  {
     SYMBOL: "SHMUSDT",
     USDT_QUANTITY: 25,
     QTY_STEP: 0.01,
@@ -138,11 +129,9 @@ export const COINS_CONFIG: CoinConfig[] = [
     SELL_RANGE: 0.7,
     BUY_RANGE: 0.1,
     MIN_NOTIONAL: 3.1,
-    ASSET_NAME: "SHM",
     TRADE_INTERVAL_MS: 60000,
     INTERVAL_AFTER_STOPLOSS_MS: 5 * 60 * 60 * 1000,
     ORDER_TIMEOUT_MS: 10 * 60 * 1000,
-
     ANALIZE_INTERVAL_CANDLES: 500,
     CANDLES_INTERVAL: "1m",
     LOOCAL_LOOKBACK: 500,
@@ -150,7 +139,7 @@ export const COINS_CONFIG: CoinConfig[] = [
     MAX_RANGE_PCT: 100,
     MAX_TREND_FACTOR: 0.99,
   },
-      {
+  {
     SYMBOL: "XPINUSDT",
     USDT_QUANTITY: 25,
     QTY_STEP: 0.01,
@@ -159,11 +148,9 @@ export const COINS_CONFIG: CoinConfig[] = [
     SELL_RANGE: 0.7,
     BUY_RANGE: 0.1,
     MIN_NOTIONAL: 3.1,
-    ASSET_NAME: "XPIN",
     TRADE_INTERVAL_MS: 60000,
     INTERVAL_AFTER_STOPLOSS_MS: 5 * 60 * 60 * 1000,
     ORDER_TIMEOUT_MS: 10 * 60 * 1000,
-
     ANALIZE_INTERVAL_CANDLES: 500,
     CANDLES_INTERVAL: "1m",
     LOOCAL_LOOKBACK: 500,

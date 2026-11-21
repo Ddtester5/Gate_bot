@@ -1,6 +1,6 @@
 import dayjs from "dayjs";
 import { client } from "./client";
-import { COINS_CONFIG } from "./config";
+import { COINS_CONFIG } from "./gate_config";
 
 type SymbolStats = {
   symbol: string;
@@ -40,10 +40,7 @@ export function getUsdtQtyToSymbol(symbol: string): number {
 }
 
 export function getUsdtToTrades(): number {
-  return COINS_CONFIG.reduce(
-    (ac, cu) => (ac += cu.USDT_QUANTITY),
-    0,
-  );
+  return COINS_CONFIG.reduce((ac, cu) => (ac += cu.USDT_QUANTITY), 0);
 }
 
 // Преобразуем BTCUSDT в BTC/USDT с приоритетом defaultType.
@@ -56,8 +53,7 @@ function normalizeSymbol(symbol: string): string {
 
   const all = Object.values(client.markets || {}) as any[];
 
-  const defaultType =
-    (client.options as any)?.defaultType ?? "spot";
+  const defaultType = (client.options as any)?.defaultType ?? "spot";
   const preferred = all.filter((m) => m.type === defaultType);
   const pool = preferred.length ? preferred : all;
 
@@ -67,19 +63,13 @@ function normalizeSymbol(symbol: string): string {
       .replace(":", "")
       .toUpperCase();
 
-    const marketId = item.id
-      ?.replace(/[-_]/g, "")
-      .toUpperCase();
+    const marketId = item.id?.replace(/[-_]/g, "").toUpperCase();
 
-    return (
-      marketSymbol === normalized || marketId === normalized
-    );
+    return marketSymbol === normalized || marketId === normalized;
   });
 
   if (!market) {
-    throw new Error(
-      `Торговая пара ${symbol} не найдена на ${client.id}`,
-    );
+    throw new Error(`Торговая пара ${symbol} не найдена на ${client.id}`);
   }
 
   return market.symbol;
@@ -113,9 +103,7 @@ async function getBalancesMap(): Promise<Record<string, number>> {
 }
 
 // 2. Получение текущих цен через CCXT.
-async function getPriceMap(
-  symbols: string[],
-): Promise<Record<string, number>> {
+async function getPriceMap(symbols: string[]): Promise<Record<string, number>> {
   const map: Record<string, number> = {};
 
   for (const originalSymbol of symbols) {
@@ -149,8 +137,7 @@ async function getTradesLastDays(
   const symbol = normalizeSymbol(originalSymbol);
 
   const now = Date.now();
-  const targetStartTime =
-    now - daysWindow * 24 * 60 * 60 * 1000;
+  const targetStartTime = now - daysWindow * 24 * 60 * 60 * 1000;
 
   const LIMIT = 1000;
   const MAX_PAGES_PER_CHUNK = 50;
@@ -193,12 +180,7 @@ async function getTradesLastDays(
 
         const uniqueKey = trade.id
           ? String(trade.id)
-          : [
-              trade.timestamp,
-              trade.side,
-              trade.price,
-              trade.amount,
-            ].join("_");
+          : [trade.timestamp, trade.side, trade.price, trade.amount].join("_");
 
         if (!seenTrades.has(uniqueKey)) {
           seenTrades.add(uniqueKey);
@@ -220,9 +202,7 @@ async function getTradesLastDays(
     chunkStart = chunkEnd + 1;
   }
 
-  return allTrades.sort(
-    (a, b) => Number(a.execTime) - Number(b.execTime),
-  );
+  return allTrades.sort((a, b) => Number(a.execTime) - Number(b.execTime));
 }
 
 // 4. Расчёт статистики периода.
@@ -275,8 +255,7 @@ function calculateStatsForPeriod(
       stats.sellQty += quantity;
       stats.actualSells += 1;
 
-      const currentAvgBuyPrice =
-        rollingBuyVol / (rollingBuyQtyWithFee || 1);
+      const currentAvgBuyPrice = rollingBuyVol / (rollingBuyQtyWithFee || 1);
 
       if (price > currentAvgBuyPrice) {
         stats.winTrades += 1;
@@ -286,10 +265,8 @@ function calculateStatsForPeriod(
 
   const walletValue = realWalletBalance * currentPrice;
 
-  const totalSellVolumeWithWallet =
-    stats.sellVolume + walletValue;
-  const totalSellQtyWithWallet =
-    stats.sellQty + realWalletBalance;
+  const totalSellVolumeWithWallet = stats.sellVolume + walletValue;
+  const totalSellQtyWithWallet = stats.sellQty + realWalletBalance;
 
   const qtyDelta = stats.buyQty - totalSellQtyWithWallet;
 
@@ -300,13 +277,9 @@ function calculateStatsForPeriod(
     historyAdjustment = -Math.abs(qtyDelta) * earliestPrice;
   }
 
-  stats.pnl =
-    totalSellVolumeWithWallet -
-    stats.buyVolume +
-    historyAdjustment;
+  stats.pnl = totalSellVolumeWithWallet - stats.buyVolume + historyAdjustment;
 
-  stats.simulatedVolume =
-    walletValue + historyAdjustment;
+  stats.simulatedVolume = walletValue + historyAdjustment;
 
   return stats;
 }
@@ -326,18 +299,13 @@ async function calculateMultiPeriodPnl() {
 
     const now = Date.now();
 
-    const periodResults: Record<
-      number,
-      Record<string, SymbolStats>
-    > = {};
+    const periodResults: Record<number, Record<string, SymbolStats>> = {};
 
     INTERVALS_CONFIG.forEach((config) => {
       periodResults[config.hours] = {};
     });
 
     for (const symbol of symbols) {
-      console.log(`Загрузка истории сделок: ${symbol}`);
-
       let allTrades: any[] = [];
       try {
         allTrades = await getTradesLastDays(symbol, HISTORY_DAYS);
@@ -350,27 +318,18 @@ async function calculateMultiPeriodPnl() {
       }
 
       if (allTrades.length === 0) {
-        console.log(
-          `Нет сделок за последние ${HISTORY_DAYS} дней: ${symbol}`,
-        );
+        console.log(`Нет сделок за последние ${HISTORY_DAYS} дней: ${symbol}`);
         continue;
       }
 
-      console.log(
-        `  загружено сделок (${HISTORY_DAYS}д): ${allTrades.length}`,
-      );
-
       const currentPrice = prices[symbol] || 0;
 
-      const baseAsset = symbol
-        .replace("/", "")
-        .replace(/(USDT|USD|BUSD)$/, "");
+      const baseAsset = symbol.replace("/", "").replace(/(USDT|USD|BUSD)$/, "");
 
       const realWalletBalance = balances[baseAsset] || 0;
 
       for (const config of INTERVALS_CONFIG) {
-        const cutoffTime =
-          now - config.hours * 60 * 60 * 1000;
+        const cutoffTime = now - config.hours * 60 * 60 * 1000;
 
         const filteredTrades = allTrades.filter(
           (trade) => Number(trade.execTime) >= cutoffTime,
@@ -416,16 +375,12 @@ async function calculateMultiPeriodPnl() {
           Монета: stats.symbol,
           "PnL (USDT)": stats.pnl.toFixed(2),
           Сделки: stats.tradesCount,
-          "Объем круга (USDT)": getUsdtQtyToSymbol(
-            stats.symbol,
-          ),
+          "Объем круга (USDT)": getUsdtQtyToSymbol(stats.symbol),
         };
       });
 
       if (rows.length === 0) {
-        console.log(
-          `⏱️ ПЕРИОД: ${config.label} — Нет сделок за этот период.`,
-        );
+        console.log(`⏱️ ПЕРИОД: ${config.label} — Нет сделок за этот период.`);
         console.log(
           "----------------------------------------------------------------\n",
         );
@@ -447,10 +402,7 @@ async function calculateMultiPeriodPnl() {
       );
     }
   } catch (error: any) {
-    console.error(
-      "Ошибка формирования отчёта PnL:",
-      error.message || error,
-    );
+    console.error("Ошибка формирования отчёта PnL:", error.message || error);
   }
 }
 

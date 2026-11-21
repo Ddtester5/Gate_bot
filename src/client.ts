@@ -1,5 +1,5 @@
 import ccxt from "ccxt";
-import { API_KEY, SECRET_KEY, EXCHANGE_ID } from "./config";
+import { API_KEY, EXCHANGE_ID, SECRET_KEY } from "./gate_config";
 
 // Создаём клиент выбранной биржи через CCXT.
 const ExchangeClass = (ccxt as any)[EXCHANGE_ID];

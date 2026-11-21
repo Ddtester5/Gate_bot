@@ -1,15 +1,14 @@
-
-import type { CoinConfig } from "./config";
 import { analyzeMarket } from "./analize_market";
+import type { CoinConfig } from "./gate_config";
 import {
   cancelOrder,
   getOpenOrders,
   placeLimitOrder,
   placeMarketSell,
 } from "./orders";
+import { getLastBuyPrice } from "./trades";
 import { sleep } from "./utils";
 import { getAssetBalance } from "./wallet";
-import { getLastBuyPrice } from "./trades";
 
 export async function tradeLoop(config: CoinConfig) {
   const {
@@ -19,7 +18,6 @@ export async function tradeLoop(config: CoinConfig) {
     PRICE_STEP,
     STOP_LOSS_PCT,
     MIN_NOTIONAL,
-    ASSET_NAME,
     INTERVAL_AFTER_STOPLOSS_MS,
     ORDER_TIMEOUT_MS,
     TRADE_INTERVAL_MS,
@@ -32,10 +30,8 @@ export async function tradeLoop(config: CoinConfig) {
     SELL_RANGE,
     LOOCAL_LOOKBACK,
   } = config;
-
-  console.log(
-    `🚀 Робот запущен для пары ${SYMBOL} через CCXT.`,
-  );
+  const ASSET_NAME = config.SYMBOL.replace(/USDT$/, "");
+  console.log(`🚀 Робот запущен для пары ${SYMBOL} через CCXT.`);
 
   while (true) {
     try {
@@ -58,15 +54,9 @@ export async function tradeLoop(config: CoinConfig) {
         continue;
       }
 
-      const {
-        currentBuyOrder,
-        currentSellOrder,
-      } = await getOpenOrders(SYMBOL);
+      const { currentBuyOrder, currentSellOrder } = await getOpenOrders(SYMBOL);
 
-      const {
-        coinBalance,
-        usdtBalance,
-      } = await getAssetBalance(ASSET_NAME);
+      const { coinBalance, usdtBalance } = await getAssetBalance(ASSET_NAME);
 
       if (
         coinBalance === null ||
@@ -85,8 +75,7 @@ export async function tradeLoop(config: CoinConfig) {
       const safeCoinBalance = coinBalance || 0;
       const currentPrice = market.currentPrice;
 
-      const coinValueInUsdt =
-        safeCoinBalance * currentPrice;
+      const coinValueInUsdt = safeCoinBalance * currentPrice;
 
       // Рассчитываем объём средств в открытых ордерах.
       const usdtToBuyOrders = currentBuyOrder.reduce(
@@ -111,8 +100,7 @@ export async function tradeLoop(config: CoinConfig) {
         // Если история сделок недоступна, не рассчитываем
         // стоп-лосс от нулевой цены.
         if (buyPrice !== null && buyPrice > 0) {
-          const stopPrice =
-            buyPrice * (1 - STOP_LOSS_PCT / 100);
+          const stopPrice = buyPrice * (1 - STOP_LOSS_PCT / 100);
 
           if (currentPrice <= stopPrice) {
             console.log(
@@ -136,19 +124,13 @@ export async function tradeLoop(config: CoinConfig) {
                 ? Math.round(-Math.log10(qtyStepNum))
                 : 0;
 
-            const formattedStopQty =
-              safeCoinBalance.toFixed(decimalsQty);
+            const formattedStopQty = safeCoinBalance.toFixed(decimalsQty);
 
             if (Number(formattedStopQty) > 0) {
-              await placeMarketSell(
-                Number(formattedStopQty),
-                SYMBOL,
-              );
+              await placeMarketSell(Number(formattedStopQty), SYMBOL);
             }
 
-            console.log(
-              `😴 [${SYMBOL}] Пауза после стоп-лосса.`,
-            );
+            console.log(`😴 [${SYMBOL}] Пауза после стоп-лосса.`);
 
             await sleep(INTERVAL_AFTER_STOPLOSS_MS);
             continue;
@@ -169,9 +151,7 @@ export async function tradeLoop(config: CoinConfig) {
           const buyAge = Date.now() - Number(order.createdTime);
 
           if (buyAge >= ORDER_TIMEOUT_MS) {
-            console.log(
-              `⏰ [${SYMBOL}] Ордер BUY просрочен. Отменяем.`,
-            );
+            console.log(`⏰ [${SYMBOL}] Ордер BUY просрочен. Отменяем.`);
 
             await cancelOrder(order.orderId, SYMBOL);
           }
@@ -180,13 +160,10 @@ export async function tradeLoop(config: CoinConfig) {
 
       if (currentSellOrder.length > 0) {
         for (const order of currentSellOrder) {
-          const sellAge =
-            Date.now() - Number(order.createdTime);
+          const sellAge = Date.now() - Number(order.createdTime);
 
           if (sellAge >= ORDER_TIMEOUT_MS) {
-            console.log(
-              `⏰ [${SYMBOL}] Ордер SELL просрочен. Отменяем.`,
-            );
+            console.log(`⏰ [${SYMBOL}] Ордер SELL просрочен. Отменяем.`);
 
             await cancelOrder(order.orderId, SYMBOL);
           }
@@ -197,16 +174,11 @@ export async function tradeLoop(config: CoinConfig) {
       // 4. ВЫСТАВЛЕНИЕ ТЕЙК-ПРОФИТА
       // ==========================================
 
-      if (
-        coinValueInUsdt >= MIN_NOTIONAL &&
-        currentSellOrder.length === 0
-      ) {
+      if (coinValueInUsdt >= MIN_NOTIONAL && currentSellOrder.length === 0) {
         let targetSellPrice =
-          market.localMinPrice +
-          market.localRange * SELL_RANGE;
+          market.localMinPrice + market.localRange * SELL_RANGE;
 
-        const minAllowedSellPrice =
-          market.currentPrice + PRICE_STEP;
+        const minAllowedSellPrice = market.currentPrice + PRICE_STEP;
 
         if (targetSellPrice < minAllowedSellPrice) {
           targetSellPrice = minAllowedSellPrice;
@@ -226,9 +198,7 @@ export async function tradeLoop(config: CoinConfig) {
         ).toFixed(decimalsQty);
 
         if (Number(formattedSellQty) <= 0) {
-          console.log(
-            `⚠️ [${SYMBOL}] Недостаточный баланс для продажи.`,
-          );
+          console.log(`⚠️ [${SYMBOL}] Недостаточный баланс для продажи.`);
 
           await sleep(TRADE_INTERVAL_MS);
           continue;
@@ -269,21 +239,16 @@ export async function tradeLoop(config: CoinConfig) {
           continue;
         }
 
-        const coinQty =
-          (usdtToTrade * 0.99) / market.currentPrice;
+        const coinQty = (usdtToTrade * 0.99) / market.currentPrice;
 
-        const decimalsQty =
-          QTY_STEP.toString().split(".")[1]?.length || 0;
+        const decimalsQty = QTY_STEP.toString().split(".")[1]?.length || 0;
 
-        const formattedQty =
-          coinQty.toFixed(decimalsQty);
+        const formattedQty = coinQty.toFixed(decimalsQty);
 
         let targetBuyPrice =
-          market.localMinPrice +
-          market.localRange * BUY_RANGE;
+          market.localMinPrice + market.localRange * BUY_RANGE;
 
-        const maxAllowedBuyPrice =
-          market.currentPrice - PRICE_STEP;
+        const maxAllowedBuyPrice = market.currentPrice - PRICE_STEP;
 
         if (targetBuyPrice > maxAllowedBuyPrice) {
           targetBuyPrice = maxAllowedBuyPrice;
@@ -307,7 +272,6 @@ export async function tradeLoop(config: CoinConfig) {
           );
         }
       }
-
     } catch (error: any) {
       console.error(
         `💥 Ошибка торгового цикла ${SYMBOL}:`,
